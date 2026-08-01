@@ -154,12 +154,17 @@ def test_sweep_is_rate_limited_between_runs(database):
     assert premieres.due_for_sweep() is False
 
 
-@pytest.mark.asyncio
-async def test_sweep_stores_what_it_finds(database, monkeypatch):
+@pytest.fixture()
+def fake_schedule(monkeypatch):
+    """Both halves of the sweep, stubbed. No test should touch the network."""
     from test_library import stamp
 
+    async def full_schedule():
+        return [schedule_item(600, 70, "Upcoming Thing", 1, 1, stamp(9))]
+
     async def fake_get(path, params=None, attempts=4):
-        if params.get("date") != premieres.datetime.now(premieres.timezone.utc).date().isoformat():
+        today = premieres.datetime.now(premieres.timezone.utc).date().isoformat()
+        if (params or {}).get("date") != today:
             return []
         return [
             schedule_item(500, 60, "Fresh Thing", 1, 1, stamp(0)),
@@ -167,12 +172,48 @@ async def test_sweep_stores_what_it_finds(database, monkeypatch):
             schedule_item(502, 62, "Mid-season", 1, 6, stamp(0)),
         ]
 
+    monkeypatch.setattr(premieres.tvmaze, "full_schedule", full_schedule)
     monkeypatch.setattr(premieres.tvmaze, "_get", fake_get)
-    report = await premieres.sweep(back_days=0, ahead_days=0)
 
-    # Two premieres per schedule endpoint, deduped by episode id.
-    assert report["found"] == 2
+
+@pytest.mark.asyncio
+async def test_sweep_stores_past_and_future(database, fake_schedule):
+    report = await premieres.sweep(back_days=0)
+
+    # Two from today's schedules (deduped across both endpoints) plus one ahead.
+    assert report["found"] == 3
     rows = database.execute("SELECT show_name, kind FROM premiere ORDER BY episode_id").fetchall()
     assert [(r["show_name"], r["kind"]) for r in rows] == [
-        ("Fresh Thing", "series"), ("Returning Thing", "season")
+        ("Fresh Thing", "series"),
+        ("Returning Thing", "season"),
+        ("Upcoming Thing", "series"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_sweep_survives_the_full_schedule_failing(database, monkeypatch):
+    """The big request is the fragile one; the daily walk must still run."""
+    from test_library import stamp
+
+    async def boom():
+        raise RuntimeError("10 MB is a lot to ask for")
+
+    async def fake_get(path, params=None, attempts=4):
+        today = premieres.datetime.now(premieres.timezone.utc).date().isoformat()
+        if (params or {}).get("date") != today:
+            return []
+        return [schedule_item(500, 60, "Fresh Thing", 1, 1, stamp(0))]
+
+    monkeypatch.setattr(premieres.tvmaze, "full_schedule", boom)
+    monkeypatch.setattr(premieres.tvmaze, "_get", fake_get)
+
+    report = await premieres.sweep(back_days=0)
+    assert report["found"] == 1
+    assert report["failed_requests"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sweep_records_when_it_last_ran(database, fake_schedule):
+    assert premieres.listing()["swept_at"] is None
+    await premieres.sweep(back_days=0)
+    assert premieres.listing()["swept_at"] is not None

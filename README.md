@@ -165,7 +165,8 @@ or Archived. Favorites also import from TV Time, which stored an
 Up Next only knows about shows you already follow, which leaves open how
 anything gets onto that list. The **New** tab sweeps TVmaze's schedule for
 first episodes — season 1 episode 1 is a brand new show, any other season's
-first episode is a returning one — over the last two weeks and the next three.
+first episode is a returning one — over the last two weeks and everything
+scheduled ahead.
 
 Unfiltered that is around thirty English premieres a week, most of it food
 programming, true crime and sport. So it ships filtered to eleven services
@@ -179,8 +180,11 @@ Shows you already follow are left out, since a returning season of something
 you watch is already covered by your episode tracking. Tapping a premiere opens
 the show so you can read about it before adding.
 
-The sweep is a request per day per schedule, so it runs at most twice a day and
-caches into a table the tab reads instantly.
+Everything still to come arrives in a single `/schedule/full` call, and only
+the past needs a request per day per schedule, so a sweep is about thirty
+requests. It runs at most twice a day and caches into a table the tab reads
+instantly. If it has not run yet the tab says so rather than claiming there is
+nothing; **Check now** forces a sweep.
 
 ## New episode alerts
 

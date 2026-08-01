@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-7';
+const APP_VERSION = '2026.08.02-8';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -458,23 +458,68 @@ async function viewNew() {
       ${soon.length ? `
         <div class="date-head" style="margin-top:18px">Coming soon</div>
         <div class="list">${soon.map(premiereRow).join('')}</div>` : ''}
-    ` : `
-      <p class="muted" style="margin:0 2px">
-        No premieres on your selected services in this window.
-        ${premieres.premieres.length ? `${premieres.premieres.length} were found elsewhere — widen your services above.` : ''}
-      </p>`}
+    ` : premiereEmptyState(premieres)}
 
     <p class="muted" style="margin:16px 2px 0;font-size:12.5px">
       New shows and returning seasons, English only, from the last two weeks and
-      the next three. Already-followed shows are left out.
-      ${premieres.swept_at ? `Checked ${esc(airLabel(premieres.swept_at))}.` : ''}
+      everything scheduled ahead. Already-followed shows are left out.
+      ${premieres.swept_at
+        ? `Last checked ${esc(airLabel(premieres.swept_at))}.`
+        : 'Not checked yet.'}
+      <button class="ghost" id="premieres-refresh" style="padding:2px 6px">Check now</button>
     </p>`;
+
+  document.getElementById('premieres-refresh').addEventListener('click', async (event) => {
+    event.target.disabled = true;
+    event.target.textContent = 'Checking…';
+    try {
+      const report = await api('/premieres/refresh', { method: 'POST' });
+      toast(`Found ${report.found} premieres`);
+      await render();
+    } catch (error) {
+      toast(error.message);
+      event.target.disabled = false;
+      event.target.textContent = 'Check now';
+    }
+  });
 
   document.getElementById('services-toggle').addEventListener('click', () => {
     const panel = document.getElementById('services-panel');
     if (!panel.innerHTML) panel.innerHTML = servicesPanel(premieres, services);
     panel.classList.toggle('hidden');
   });
+}
+
+// Never claim there is nothing out there when the truth is we have not looked.
+// The first sweep after an update takes a couple of minutes, because it shares
+// a rate limit with the episode refresh.
+function premiereEmptyState(premieres) {
+  if (!premieres.swept_at) {
+    return `
+      <p class="muted" style="margin:0 2px">
+        Still checking for premieres. The first sweep after an update takes a
+        minute or two — pull down to refresh, or use Check now below.
+      </p>`;
+  }
+  if (!premieres.stored) {
+    return `
+      <p class="muted" style="margin:0 2px">
+        The last check found nothing at all, which usually means TVmaze was
+        unreachable. Try Check now below.
+      </p>`;
+  }
+  if (!premieres.premieres.length) {
+    return `
+      <p class="muted" style="margin:0 2px">
+        ${premieres.stored} premieres are stored, but every one in this window is
+        from a show you already follow.
+      </p>`;
+  }
+  return `
+    <p class="muted" style="margin:0 2px">
+      None on your selected services.
+      ${premieres.premieres.length} found on others — widen your services above.
+    </p>`;
 }
 
 function servicesPanel(premieres, services) {

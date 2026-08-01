@@ -66,7 +66,7 @@ SERVICE_GROUPS = {
 
 WINDOW_BACK_DAYS = 14
 WINDOW_AHEAD_DAYS = 21
-# One sweep is a request per day per schedule, so do not repeat it often.
+# One sweep is ~30 requests, one of them a 10 MB payload, so do not repeat it often.
 MIN_HOURS_BETWEEN_SWEEPS = 12
 
 
@@ -116,13 +116,27 @@ def _normalise(item: dict) -> dict | None:
     }
 
 
-async def sweep(back_days: int = WINDOW_BACK_DAYS, ahead_days: int = WINDOW_AHEAD_DAYS) -> dict:
-    """Walk the schedule day by day and record every premiere found."""
+async def sweep(back_days: int = WINDOW_BACK_DAYS, ahead_days: int | None = None) -> dict:
+    """Record every premiere: one call for the future, day by day for the past.
+
+    The past needs a request per day per schedule, but everything still to come
+    arrives in a single /schedule/full, which is both far cheaper than 40-odd
+    daily requests and unlimited in horizon.
+    """
     today = datetime.now(timezone.utc).date()
     rows: dict[int, dict] = {}
     failures = 0
 
-    for offset in range(-abs(back_days), abs(ahead_days) + 1):
+    try:
+        for item in await tvmaze.full_schedule():
+            row = _normalise(item)
+            if row:
+                rows[row["episode_id"]] = row
+    except Exception:  # a large response with its own ways to fail
+        log.warning("full schedule fetch failed; falling back to daily requests")
+        failures += 1
+
+    for offset in range(-abs(back_days), 1):
         day = (today + timedelta(days=offset)).isoformat()
         for path, params in (
             ("/schedule/web", {"date": day}),
@@ -154,6 +168,7 @@ async def sweep(back_days: int = WINDOW_BACK_DAYS, ahead_days: int = WINDOW_AHEA
     removed = prune()
     set_meta("premieres_swept_at", utcnow())
     report = {"found": len(rows), "removed": removed, "failed_requests": failures, "at": utcnow()}
+    set_meta("premieres_last_report", json.dumps(report))
     log.info("premiere sweep: %s", report)
     return report
 
@@ -217,6 +232,7 @@ def listing(back_days: int = 14, ahead_days: int = 21, include_followed: bool = 
         "defaults": DEFAULT_SERVICES,
         "groups": SERVICE_GROUPS,
         "swept_at": get_meta("premieres_swept_at"),
+        "stored": connect().execute("SELECT COUNT(*) AS n FROM premiere").fetchone()["n"],
         "window": {"back_days": back_days, "ahead_days": ahead_days},
     }
 

@@ -127,6 +127,18 @@ async def lookup_by_imdb(imdb_id: str) -> dict | None:
         return None
 
 
+async def full_schedule() -> list[dict]:
+    """Every future episode TVmaze knows about, in one request.
+
+    Around 10 MB, so it is deliberately not used for anything that runs often —
+    but it replaces a request per day and covers an unlimited horizon.
+    """
+    await _limiter.acquire()
+    response = await client().get("/schedule/full", timeout=httpx.Timeout(120.0))
+    response.raise_for_status()
+    return response.json()
+
+
 async def updates_since(period: str = "week") -> dict[str, int]:
     """Map of show id -> last-updated epoch, for cheap staleness checks."""
     return await _get("/updates/shows", {"since": period}) or {}

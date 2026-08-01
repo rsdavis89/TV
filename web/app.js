@@ -665,8 +665,20 @@ async function viewSettings() {
         </div>` : ''}
     </section>
 
+    ${status.storage && status.storage.warning ? `
+      <div class="alarm">
+        <strong>Your data is not being saved permanently</strong>
+        ${esc(status.storage.warning)}
+        <div class="muted" style="margin-top:8px">Currently writing to ${esc(status.storage.database)}</div>
+      </div>` : ''}
+
     <section class="section">
       <div class="section-head"><h2>Backups</h2></div>
+      ${status.storage ? `
+        <p class="muted" style="margin:0 2px 10px;font-size:12.5px">
+          Database: <code>${esc(status.storage.database)}</code>
+          ${status.storage.exists ? `· ${Math.max(Math.round(status.storage.size_bytes / 1024), 1)} KB` : '· empty'}
+        </p>` : ''}
       <p class="muted" style="margin:0 2px 10px">
         ${backups.enabled
           ? `Saved automatically every ${backups.interval_hours} hours, keeping the last ${backups.keep}.

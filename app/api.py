@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import auth, backup, config, importer, jobs, library, refresh, tvmaze
+from . import auth, backup, config, importer, jobs, library, refresh, storage, tvmaze
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
@@ -282,6 +282,7 @@ def get_status() -> dict:
         "refresh_interval_hours": config.REFRESH_INTERVAL_HOURS,
         "auth_required": auth.enabled(),
         "backup": backup.status(),
+        "storage": storage.status(),
     }
 
 

@@ -172,3 +172,30 @@ def test_dockerfile_has_no_volume_instruction():
     assert "VOLUME" not in instructions
     # And the image must not pin a port, or the platform cannot route to it.
     assert "TV_PORT=" not in dockerfile
+
+
+def test_status_reports_where_the_database_lives(client):
+    """Misplaced storage is invisible until a restart destroys it, so say where."""
+    reported = client.get("/api/status").json()["storage"]
+
+    assert reported["database"].endswith(".db")
+    assert "backups" in reported
+    assert reported["at_risk"] is False
+    assert reported["warning"] is None
+
+
+def test_storage_warns_when_the_database_is_on_container_disk(monkeypatch, tmp_path):
+    from app import config as config_module
+    from app import storage
+
+    monkeypatch.setattr(storage, "in_container", lambda: True)
+    monkeypatch.setattr(config_module, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "DB_PATH", tmp_path / "data" / "tv.db")
+
+    reported = storage.status()
+    assert reported["at_risk"] is True
+    assert "erased" in reported["warning"]
+
+    # A mounted volume outside the app directory is fine.
+    monkeypatch.setattr(config_module, "DB_PATH", tmp_path.parent / "volume" / "tv.db")
+    assert storage.status()["at_risk"] is False

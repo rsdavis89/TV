@@ -257,7 +257,8 @@ def test_favorite_and_priority_flags_round_trip(database):
     assert library.show_card(show_id)["favorite"] is True
 
 
-def test_priority_shows_are_pinned_above_ready_ones(database):
+def test_priority_does_not_reorder_up_next(database):
+    """Pinning is a shortlist you visit, not a promotion on the main screen."""
     seed(database, show_id=1, name="Recently Watched")
     seed(
         database,
@@ -273,46 +274,44 @@ def test_priority_shows_are_pinned_above_ready_ones(database):
     library.set_priority(2, True)
 
     home = library.home()
-    assert [c["show"]["name"] for c in home["priority"]] == ["Pinned"]
-    assert [c["show"]["name"] for c in home["ready"]] == ["Recently Watched"]
-    assert home["counts"]["priority"] == 1
-    # Episodes waiting for you counts both sections.
-    assert home["counts"]["episodes_ready"] == library.progress(1)["remaining"] + library.progress(2)["remaining"]
-
-
-def test_priority_show_with_nothing_to_watch_stays_in_its_own_group(database):
-    """Pinning is about jumping the queue, not about permanent promotion."""
-    show_id = seed(database)
-    for episode_id in (101, 102, 103):
-        library.mark_watched(episode_id)
-    library.set_priority(show_id, True)
-
-    home = library.home()
-    assert home["priority"] == []
-    assert [c["show"]["id"] for c in home["scheduled"]] == [show_id]
-
-
-def test_priority_shows_order_started_before_unstarted(database):
-    seed(
-        database,
-        show_id=1,
-        name="Started",
-        episodes=[
-            make_episode(801, 1, 1, stamp(-10), show_id=1),
-            make_episode(802, 1, 2, stamp(-9), show_id=1),
-        ],
+    assert "priority" not in home
+    # Both appear in Ready to watch, ordered only by when they were last watched.
+    assert [c["show"]["name"] for c in home["ready"]] == ["Recently Watched", "Pinned"]
+    assert home["counts"]["episodes_ready"] == (
+        library.progress(1)["remaining"] + library.progress(2)["remaining"]
     )
+
+
+def test_pinning_an_unstarted_show_leaves_it_in_not_started(database):
+    """The clutter this replaced: a pinned show you have never opened."""
+    seed(database, show_id=1, name="Started Show")
+    library.mark_watched(101)
     seed(
         database,
         show_id=2,
-        name="Untouched",
+        name="Pinned But Unopened",
         episodes=[make_episode(901, 1, 1, stamp(-5), show_id=2)],
     )
-    library.mark_watched(801)
+    library.set_priority(2, True)
+
+    home = library.home()
+    assert [c["show"]["name"] for c in home["ready"]] == ["Started Show"]
+    assert [c["show"]["name"] for c in home["not_started"]] == ["Pinned But Unopened"]
+
+
+def test_home_counts_how_many_pinned_shows_have_something_waiting(database):
+    seed(database, show_id=1, name="Pinned With Episode")
+    seed(
+        database,
+        show_id=2,
+        name="Pinned And Caught Up",
+        episodes=[make_episode(801, 1, 1, stamp(5), show_id=2)],
+    )
     library.set_priority(1, True)
     library.set_priority(2, True)
 
-    assert [c["show"]["name"] for c in library.home()["priority"]] == ["Started", "Untouched"]
+    # Only the one with an aired, unwatched episode counts towards the badge.
+    assert library.home()["counts"]["priority_waiting"] == 1
 
 
 def test_bulk_archive_and_unarchive(database):

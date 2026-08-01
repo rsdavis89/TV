@@ -132,9 +132,12 @@ def test_priority_endpoint_round_trips(client, database):
 def test_home_exposes_every_group_the_front_end_renders(client, database):
     seed(database)
     home = client.get("/api/home").json()
-    for group in ("priority", "ready", "not_started", "scheduled", "waiting", "complete"):
+    for group in ("ready", "not_started", "scheduled", "waiting", "complete"):
         assert group in home, group
         assert group in home["counts"], group
+    # Priority is its own tab now, not a section here.
+    assert "priority" not in home
+    assert "priority_waiting" in home["counts"]
 
 
 def test_port_falls_back_to_the_platform_variable(monkeypatch):

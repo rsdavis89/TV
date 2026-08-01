@@ -111,11 +111,10 @@ where you actually got to, so the card says how many earlier episodes are
 unmarked. The `⟵` button next to any episode marks it and everything before it
 as watched, which clears the backlog in one tap.
 
-A show lands in one of six groups:
+A show lands in one of five groups:
 
 | Group | Meaning |
 | --- | --- |
-| Priority watch | You pinned it and it has an episode waiting |
 | Ready to watch | You have started it and the next episode has aired |
 | Coming up | You are current; the next episode has a date |
 | Not started yet | You follow it but have not watched an episode |
@@ -135,15 +134,16 @@ Two independent flags, both toggled from a show's page:
   show wherever it appears and gives you a Favorites filter on the Shows tab.
   It does not change any ordering — a favorite you are caught up on stays where
   it belongs.
-- **● Priority watch** is "get to this next". A priority show with an aired
-  episode waiting is pinned to its own section at the top of Up Next, above
-  everything else. Pin a few things you want to get through and they stay in
-  front of you until you do.
+- **● Priority watch** is "get to this next". Pinned shows get their own tab —
+  a shortlist you go and look at, with a badge counting how many have an
+  episode waiting.
 
-The distinction matters when your library is large: favorites answer "what do I
-love", priority answers "what am I watching this week". A priority show you are
-caught up on drops back to its normal group rather than sitting at the top with
-nothing to click, so the section only ever holds things you can act on.
+Priority deliberately does **not** reorder Up Next. A pinned show appears there
+exactly as any other would, on the strength of whether you are actually
+watching it; pinning something you have never started does not push it in front
+of the shows you are midway through. The pill on the card tells you it is
+pinned. Up Next answers "what am I watching", the Priority tab answers "what do
+I want to get to" — conflating them turned the first into a wishlist.
 
 The Shows tab filters by Following, Favorites, Priority watch, Never started
 or Archived. Favorites also import from TV Time, which stored an

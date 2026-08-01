@@ -10,7 +10,7 @@ def args(**kwargs):
     return type("Args", (), {"upcoming": 0, **kwargs})()
 
 
-def test_next_lists_priority_shows_first(database, capsys):
+def test_next_marks_pinned_shows_without_reordering_them(database, capsys):
     seed(database, show_id=1, name="Ordinary Show")
     seed(
         database,
@@ -21,15 +21,16 @@ def test_next_lists_priority_shows_first(database, capsys):
             make_episode(702, 1, 2, "2024-01-08T00:00:00+00:00", show_id=2),
         ],
     )
-    library.mark_watched(101)  # Ordinary Show is in progress
-    library.mark_watched(701)  # Pinned Show is in progress
+    # Ordinary Show was watched more recently, so it stays first.
+    library.mark_watched(101, watched_at="2024-09-01T00:00:00+00:00")
+    library.mark_watched(701, watched_at="2024-01-01T00:00:00+00:00")
     library.set_priority(2, True)
 
     cli.cmd_next(args())
     lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
 
-    assert lines[0].startswith("*") and "Pinned Show" in lines[0]
-    assert "Ordinary Show" in lines[1]
+    assert "Ordinary Show" in lines[0] and not lines[0].startswith("*")
+    assert lines[1].startswith("*") and "Pinned Show" in lines[1]
 
 
 def test_next_counts_unstarted_shows_instead_of_listing_them(database, capsys):

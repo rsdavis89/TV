@@ -74,9 +74,10 @@ async def cmd_add(args: argparse.Namespace) -> None:
 
 def cmd_next(args: argparse.Namespace) -> None:
     data = library.home()
-    # Priority first, then shows in progress. Shows you have never started are
-    # counted rather than listed; there can be hundreds of them.
-    waiting = [*data["priority"], *data["ready"]]
+    # Shows in progress with an episode waiting. Pinned ones are marked but not
+    # reordered, matching the app. Shows never started are counted rather than
+    # listed; there can be hundreds of them.
+    waiting = data["ready"]
     if not waiting:
         print("Nothing in progress. Check 'scheduled' for what is coming.")
     for card in waiting:

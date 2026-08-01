@@ -491,26 +491,20 @@ def home() -> dict:
     """The main screen: everything grouped by what you can do with it."""
     cards = [card for card in (show_card(sid) for sid in followed_ids()) if card]
 
-    # Priority shows jump the queue, but only while they actually have an aired
-    # episode waiting — a pinned show you are caught up on is not actionable.
-    priority = sorted(
-        [c for c in cards if c["status"] == "ready" and c["priority"]],
-        key=lambda c: (
-            c["started"],
-            (c["last_watched"] or {}).get("watched_at") or "",
-        ),
-        reverse=True,
-    )
-    # A show you are part-way through is the thing you actually want to resume,
-    # so it is ordered by when you last watched it. Shows you follow but have
-    # never started would otherwise bury them, so they get their own section.
+    # Priority is a list you go and look at, not a reordering of this one. A
+    # pinned show appears here exactly as any other show would, on the strength
+    # of whether you are actually watching it.
+    #
+    # A show you are part-way through is the thing you want to resume, so it is
+    # ordered by when you last watched it. Shows you follow but have never
+    # started would otherwise bury them, so they get their own section.
     ready = sorted(
-        [c for c in cards if c["status"] == "ready" and c["started"] and not c["priority"]],
+        [c for c in cards if c["status"] == "ready" and c["started"]],
         key=lambda c: (c["last_watched"] or {}).get("watched_at") or "",
         reverse=True,
     )
     not_started = sorted(
-        [c for c in cards if c["status"] == "ready" and not c["started"] and not c["priority"]],
+        [c for c in cards if c["status"] == "ready" and not c["started"]],
         key=lambda c: (c["next"] or {}).get("airstamp") or "",
         reverse=True,
     )
@@ -529,22 +523,21 @@ def home() -> dict:
         reverse=True,
     )
     return {
-        "priority": priority,
         "ready": ready,
         "not_started": not_started,
         "scheduled": scheduled,
         "waiting": waiting,
         "complete": complete,
         "counts": {
-            "priority": len(priority),
             "ready": len(ready),
             "not_started": len(not_started),
             "scheduled": len(scheduled),
             "waiting": len(waiting),
             "complete": len(complete),
-            "episodes_ready": sum(
-                c["progress"]["remaining"] for c in (*priority, *ready)
+            "priority_waiting": len(
+                [c for c in cards if c["priority"] and c["status"] == "ready"]
             ),
+            "episodes_ready": sum(c["progress"]["remaining"] for c in ready),
         },
     }
 

@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-2';
+const APP_VERSION = '2026.08.02-3';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -26,6 +26,7 @@ const state = {
 
 const TITLES = {
   home: 'Up Next',
+  priority: 'Priority Watch',
   new: 'New Episodes',
   calendar: 'Calendar',
   shows: 'Your Shows',
@@ -169,6 +170,7 @@ async function render(scrollTarget = null) {
   try {
     const views = {
       home: viewHome,
+      priority: viewPriority,
       new: viewNew,
       calendar: viewCalendar,
       shows: viewShows,
@@ -265,6 +267,7 @@ function section(title, cards, note = '', options = {}) {
 async function viewHome() {
   const data = await api('/home');
   updateBadge(data.new_since_last_visit);
+  updatePriorityBadge(data.counts.priority_waiting);
 
   const total = Object.values(data.counts).reduce((sum, n) => sum + n, 0) - data.counts.episodes_ready;
   if (!total) {
@@ -283,13 +286,62 @@ async function viewHome() {
         <strong>Your data is not being saved permanently</strong>
         ${esc(data.storage_warning)}
       </div>` : '',
-    section('Priority watch', data.priority, '', { inPriority: true }),
     section('Ready to watch', data.ready, data.counts.episodes_ready ? `${data.counts.episodes_ready} episodes` : ''),
     section('Coming up', data.scheduled),
     section('Not started yet', data.not_started, `${data.counts.not_started} shows`),
     section('Waiting for more', data.waiting),
     section('Finished', data.complete),
   ].join('') || '<div class="empty">Nothing to show yet.</div>';
+}
+
+/* --------------------------------------------------------- priority view */
+
+// Most useful first: things you are part-way through with an episode waiting,
+// then unstarted ones that have aired, then everything still to come.
+function priorityRank(card) {
+  if (card.status === 'ready') return card.started ? 0 : 1;
+  if (card.status === 'scheduled') return 2;
+  if (card.status === 'complete') return 4;
+  return 3;
+}
+
+async function viewPriority() {
+  const cards = await api('/shows?filter=priority&sort=name');
+  updatePriorityBadge(cards.filter((card) => card.status === 'ready').length);
+
+  if (!cards.length) {
+    main.innerHTML = `
+      <div class="empty">
+        <strong>Nothing pinned yet</strong>
+        Open a show and tap ○ Priority to add it here. This is your shortlist of
+        what to get to next — it does not change your Up Next.
+      </div>`;
+    return;
+  }
+
+  cards.sort((a, b) => (
+    priorityRank(a) - priorityRank(b)
+    || ((b.last_watched || {}).watched_at || '').localeCompare((a.last_watched || {}).watched_at || '')
+  ));
+
+  const waiting = cards.filter((card) => card.status === 'ready');
+  const later = cards.filter((card) => card.status !== 'ready');
+
+  main.innerHTML = [
+    section('Ready to watch', waiting, waiting.length ? `${waiting.length} of ${cards.length}` : '', { inPriority: true }),
+    section('Nothing waiting yet', later, '', { inPriority: true }),
+  ].join('');
+}
+
+function updatePriorityBadge(count) {
+  const badge = document.getElementById('priority-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count > 99 ? '99+' : count;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
 }
 
 /* -------------------------------------------------------------- new view */

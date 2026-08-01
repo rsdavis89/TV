@@ -1,5 +1,11 @@
 /* TV Tracker - a small hand-rolled SPA, no build step. */
 
+// Bump this whenever app.js changes. The server reads the same constant out of
+// the file it would serve, so a mismatch means the browser is running a cached
+// copy of an older build — the one failure that makes a deploy look broken when
+// it is not.
+const APP_VERSION = '2026.08.01-7';
+
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
 const toastEl = document.getElementById('toast');
@@ -632,6 +638,14 @@ async function viewSettings() {
         <div class="muted" style="margin-top:8px">Currently writing to ${esc(status.storage.database)}</div>
       </div>` : ''}
 
+    ${status.storage && status.storage.app_version !== APP_VERSION ? `
+      <div class="alarm">
+        <strong>This page is out of date</strong>
+        Your browser is running app version ${esc(APP_VERSION)} but the server has
+        ${esc(status.storage.app_version)}. Tap below to drop the cached copy and reload.
+        <div style="margin-top:10px"><button class="primary" id="force-reload">Reload the app</button></div>
+      </div>` : ''}
+
     <section class="section">
       <div class="section-head"><h2>Library</h2></div>
       <div class="stat-grid">
@@ -675,6 +689,15 @@ async function viewSettings() {
                 ${(job.report || {}).episodes_marked ?? 0} episodes</li>`).join('')}
           </ul>
         </div>` : ''}
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>App</h2></div>
+      <p class="muted" style="margin:0 2px 10px;font-size:12.5px">
+        Version ${esc(APP_VERSION)}${status.storage ? ` · server has ${esc(status.storage.app_version)}` : ''}.
+        If a change I made does not seem to have arrived, reload rather than assuming it failed.
+      </p>
+      <button class="secondary" id="reload-app">Reload the app</button>
     </section>
 
     <section class="section">
@@ -738,6 +761,9 @@ async function viewSettings() {
   document.getElementById('import-preview').addEventListener('click', () => runImport(true));
   document.getElementById('import-commit').addEventListener('click', () => runImport(false));
   document.getElementById('export-btn').addEventListener('click', downloadBackup);
+  document.querySelectorAll('#force-reload, #reload-app').forEach((button) => {
+    button.addEventListener('click', hardReload);
+  });
   document.getElementById('restore-btn').addEventListener('click', runRestore);
   document.getElementById('backup-now').addEventListener('click', async (event) => {
     event.target.disabled = true;
@@ -858,6 +884,25 @@ async function runRestore() {
   } catch (error) {
     target.innerHTML = `<div class="report">${esc(error.message)}</div>`;
   }
+}
+
+// iOS keeps a home-screen web app's files aggressively, and there is no "clear
+// cache" a normal person can reach. This throws away the service worker and its
+// caches, then reloads from the network.
+async function hardReload() {
+  toast('Fetching the latest version…');
+  try {
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names.map((name) => caches.delete(name)));
+    }
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+  } catch (_) { /* reload anyway */ }
+  // Cache-busting query so the shell itself cannot come from a stale store.
+  window.location.replace(`/?fresh=${Date.now()}`);
 }
 
 async function downloadBackup() {

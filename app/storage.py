@@ -10,11 +10,22 @@ writing and warns when that looks temporary.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
 from . import config
 from .db import utcnow
+
+
+def served_app_version() -> str:
+    """The APP_VERSION constant in the app.js this server would hand out."""
+    try:
+        text = (config.WEB_DIR / "app.js").read_text()
+    except OSError:
+        return "unknown"
+    match = re.search(r"APP_VERSION\s*=\s*'([^']+)'", text)
+    return match.group(1) if match else "unknown"
 
 
 def in_container() -> bool:
@@ -83,6 +94,7 @@ def status() -> dict:
         "size_bytes": size,
         "created_at": created_at,
         "starts": starts,
+        "app_version": served_app_version(),
         "backups": str(config.BACKUP_DIR),
         "in_container": in_container(),
         "at_risk": at_risk,

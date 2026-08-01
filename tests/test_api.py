@@ -217,3 +217,24 @@ def test_storage_counts_restarts_as_proof_of_persistence(database):
     assert later["starts"] == 3
     # The birthday is stamped once and never moves.
     assert later["created_at"] == first["created_at"]
+
+
+def test_status_reports_the_app_version_it_serves(client):
+    """A stale cached front end makes a good deploy look broken; name the build."""
+    from app import storage
+
+    served = client.get("/api/status").json()["storage"]["app_version"]
+    assert served != "unknown"
+    assert served == storage.served_app_version()
+
+
+def test_app_js_carries_a_version_matching_what_the_server_reads():
+    """The constant in app.js is the one the server extracts."""
+    import re
+    from pathlib import Path
+
+    from app import storage
+
+    source = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text()
+    declared = re.search(r"APP_VERSION\s*=\s*'([^']+)'", source).group(1)
+    assert declared == storage.served_app_version()

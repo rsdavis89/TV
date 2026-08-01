@@ -124,6 +124,9 @@ A show lands in one of five groups:
 | Waiting for more | You are current; nothing is scheduled yet |
 | Finished | The show has ended and you have seen it all |
 
+Each group shows its first ten with a "Show all" button beneath, so a long
+category cannot push the ones under it off the screen.
+
 "Ready to watch" is ordered by when you last watched each show, so whatever you
 were in the middle of is at the top. Shows you follow but never started are
 split out rather than mixed in — with a few hundred followed shows they would

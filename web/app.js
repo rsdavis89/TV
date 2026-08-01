@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-4';
+const APP_VERSION = '2026.08.02-5';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -22,6 +22,7 @@ const state = {
   showFilter: { filter: 'active', sort: 'name', q: '' },
   selecting: false,
   selected: new Set(),
+  expanded: new Set(),
 };
 
 const TITLES = {
@@ -68,6 +69,31 @@ function toast(message) {
   toastEl.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.add('hidden'), 2600);
+}
+
+// A text field with an ✕ to empty it. iOS does not offer one reliably, and
+// backspacing through a long query is miserable on a phone.
+function clearableInput({ id, placeholder, value = '', type = 'search' }) {
+  return `
+    <div class="clearable">
+      <input type="${type}" id="${esc(id)}" placeholder="${esc(placeholder)}"
+             value="${esc(value)}" autocomplete="off">
+      <button type="button" class="clear-btn ${value ? '' : 'hidden'}"
+              data-clearfor="${esc(id)}" aria-label="Clear">&times;</button>
+    </div>`;
+}
+
+function wireClearable(id, onClear) {
+  const input = document.getElementById(id);
+  const button = document.querySelector(`[data-clearfor="${id}"]`);
+  if (!input || !button) return;
+  input.addEventListener('input', () => button.classList.toggle('hidden', !input.value));
+  button.addEventListener('click', () => {
+    input.value = '';
+    button.classList.add('hidden');
+    input.focus();
+    if (onClear) onClear();
+  });
 }
 
 function poster(url, className, alt) {
@@ -255,12 +281,28 @@ function showCard(card, options = {}) {
     </div>`;
 }
 
+// Long sections push everything below them off the screen, so each one shows a
+// first handful with the rest a tap away.
+const SECTION_LIMIT = 10;
+
 function section(title, cards, note = '', options = {}) {
   if (!cards.length) return '';
+  // Namespaced by view, since the same heading appears on more than one screen.
+  const key = `${state.view}:${title.toLowerCase().replace(/[^a-z]+/g, '-')}`;
+  const expanded = state.expanded.has(key);
+  const collapsible = cards.length > SECTION_LIMIT;
+  const shown = expanded || !collapsible ? cards : cards.slice(0, SECTION_LIMIT);
+
   return `
     <section class="section">
       <div class="section-head"><h2>${esc(title)}</h2><span class="muted">${esc(note)}</span></div>
-      ${cards.map((card) => showCard(card, options)).join('')}
+      ${shown.map((card) => showCard(card, options)).join('')}
+      ${collapsible ? `
+        <button class="secondary expander" data-expand="${key}">
+          ${expanded
+            ? 'Show fewer'
+            : `Show all ${cards.length} &#9662;`}
+        </button>` : ''}
     </section>`;
 }
 
@@ -522,7 +564,7 @@ async function viewShows() {
 
   main.innerHTML = `
     <div class="field">
-      <input type="search" id="show-search" placeholder="Filter your shows" value="${esc(q)}">
+      ${clearableInput({ id: 'show-search', placeholder: 'Filter your shows', value: q })}
     </div>
     <div class="field" style="display:flex;gap:8px">
       <select id="show-which">
@@ -550,6 +592,10 @@ async function viewShows() {
   const search = document.getElementById('show-search');
   search.addEventListener('change', () => {
     state.showFilter.q = search.value.trim();
+    render();
+  });
+  wireClearable('show-search', () => {
+    state.showFilter.q = '';
     render();
   });
   document.getElementById('show-which').addEventListener('change', (event) => {
@@ -632,7 +678,7 @@ async function runBulk(action) {
 async function viewSearch() {
   main.innerHTML = `
     <form id="search-form" class="field" style="display:flex;gap:8px">
-      <input type="search" id="search-input" placeholder="Search for a show" value="${esc(state.searchQuery)}" autocomplete="off">
+      ${clearableInput({ id: 'search-input', placeholder: 'Search for a show', value: state.searchQuery })}
       <button class="primary" type="submit">Go</button>
     </form>
     <div id="search-results">${
@@ -654,6 +700,7 @@ async function viewSearch() {
       document.getElementById('search-results').innerHTML = `<div class="empty">${esc(error.message)}</div>`;
     }
   });
+  wireClearable('search-input', () => { state.searchQuery = ''; });
   if (!state.searchResults) input.focus();
 }
 
@@ -1147,7 +1194,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-backup-now], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-backup-now], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
@@ -1160,6 +1207,12 @@ document.addEventListener('click', async (event) => {
   }
 
   if (data.bulk) return runBulk(data.bulk);
+
+  if (data.expand) {
+    if (state.expanded.has(data.expand)) state.expanded.delete(data.expand);
+    else state.expanded.add(data.expand);
+    return render();  // no scroll target, so the page holds its place
+  }
 
   if (data.go) return go(data.go);
   if (data.stats) return viewStats();

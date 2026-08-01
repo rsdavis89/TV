@@ -43,16 +43,22 @@ build takes a couple of minutes.
 
 A volume is a disk that survives restarts. Your watch history lives on it.
 
-Volumes are **not** in the service's Variables or Settings tab — they are
-created on the project canvas, the screen showing your service as a box:
+Volumes are **not** in the service's Variables or Settings tab. Railway only
+documents two ways to create one, and both are desktop gestures: `⌘K`, or
+right-click on the project canvas. On a phone you need a substitute for the
+right-click.
 
-1. Close the service panel with the **✕** in its top right, so you can see the
-   canvas.
-2. Tap **+ Create** (on a phone; on a desktop it is right-click on the canvas,
-   or `⌘K` → "volume").
-3. Choose **Volume**.
-4. Pick the **TV** service to attach it to.
-5. Set the mount path to exactly:
+**On an iPhone:**
+
+1. Tap the **✕** on the service panel so you can see the project canvas — the
+   screen with your service drawn as a box.
+2. In Safari's address bar, tap **ᴀA** → **Request Desktop Website**. The
+   canvas then behaves like the desktop app, which is what the next step needs.
+3. **Press and hold** on an empty part of the canvas — not on the service box.
+   That is the touch equivalent of a right-click and brings up the menu.
+4. Choose **Volume** (or **New** → **Volume**).
+5. Pick the **TV** service to attach it to.
+6. Set the mount path to exactly:
 
    ```
    /data
@@ -60,6 +66,15 @@ created on the project canvas, the screen showing your service as a box:
 
    A leading slash, no dot. `./data` is a different place — inside the
    container, wiped on every restart.
+
+If the press-and-hold does nothing, this is the one step that is genuinely
+easier on a computer: any desktop browser, right-click the canvas, thirty
+seconds. It only has to be done once, and everything after it is phone-
+friendly again.
+
+Volumes cannot be declared in `railway.json` — Railway's config file covers
+build and deploy settings only — so there is no way to put this in the
+repository and skip the dashboard.
 
 Without this, your library is wiped on every restart and no backup can save
 you, because the backups live on the same disk.
@@ -174,8 +189,14 @@ many times as you like.
 - **Everything vanished after a restart** — the volume is missing, or
   `TV_DATA_DIR` does not match the volume's mount path. Both must be `/data`,
   with a leading slash. Re-check step 3.
-- **Cannot find where to add a volume** — it is not in the service panel. Close
-  that panel first; volumes are created from the project canvas behind it.
+- **Cannot find where to add a volume** — it is not in the service panel, and
+  not in Settings. Close the panel, switch Safari to **Request Desktop
+  Website**, and press-and-hold on empty canvas. See step 3.
+- **Did the volume actually attach?** Once the app is running, open **More →
+  Backups**. The line under the buttons names the directory it is writing to.
+  If it says `/data/backups`, the volume and `TV_DATA_DIR` are both right. If
+  it says anything starting with `./` or `/app`, they are not, and your library
+  will not survive a restart.
 - **The password screen never appears** — `TV_PASSWORD` is not set. Anyone with
   the address can see your library until it is.
 - **Shows are not updating** — **More → Check now** forces it.

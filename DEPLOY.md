@@ -129,6 +129,37 @@ You now have an icon on your home screen. Opening it launches the app
 fullscreen with no address bar. That is as close to the old TV Time app as a
 web app gets, and it is how most people ran TV Time replacements anyway.
 
+## Step 6b — prove your data survives a restart (do this before importing)
+
+Correct-looking settings are not proof. A volume can be attached after data was
+already written, a service can be recreated, a mount path can be subtly wrong.
+The only trustworthy test is to restart the app and see what survives — so do
+it while there is nothing to lose, before importing years of history.
+
+**Before:** add any one show. Open **More** and note two things from the
+Backups panel:
+
+- **Created** — the date and time the database was made
+- **Restarts survived** — a number
+
+**Restart it:** in Railway, open the service → **Deployments** → the **⋯** menu
+on the most recent deployment → **Redeploy**. Wait for it to go green, about
+two minutes. A redeploy is the right test because that is exactly what a code
+change does.
+
+**After:** reopen the app and look again.
+
+| What you see | What it means |
+| --- | --- |
+| Show still there, **Created** unchanged, **Restarts survived** went up by one | Storage is real. Deploys are safe. Import away. |
+| Show gone, **Created** says just now, **Restarts survived** back to 0 | The database is being recreated every restart. Do **not** import. |
+
+The second row is the failure that loses libraries, and this is how you catch
+it in three minutes instead of after an import.
+
+If the app looks unchanged after a deploy, it is showing you a cached copy:
+**More → App → Reload the app**.
+
 ## Step 7 — import your history
 
 Your TV Time export needs to reach the app. The file picker in Safari can read

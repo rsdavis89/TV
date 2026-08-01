@@ -258,6 +258,22 @@ tests/         pytest suite
 The front end is deliberately dependency-free — no npm, no bundler, no build
 step. Editing `web/app.js` and reloading is the whole workflow.
 
+## Verifying that storage persists
+
+Configuration that looks right is not proof that data survives a restart. The
+database records when it was created and counts every start, and **More** shows
+both. A database created days ago that has survived nine restarts is
+demonstrably being kept; one that reports being created on the most recent
+start, every time, is not.
+
+To check deliberately: note those two numbers, restart or redeploy the app, and
+look again. The creation time should be unchanged and the count one higher. Do
+this before importing anything you would mind losing — see
+[DEPLOY.md](DEPLOY.md) step 6b.
+
+The app also warns outright when the database sits inside the container rather
+than on a mounted volume, which is the usual cause.
+
 ## Updating a running install
 
 Your library and the code live in different places, which is what makes updates

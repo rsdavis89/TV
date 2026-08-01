@@ -15,11 +15,15 @@ def _print_report(report: dict) -> None:
     print("-" * 46)
     for item in report["files"]:
         print(f"  {item['file']}: {item['rows']} rows -> {item['used']}")
+    print(f"  detected format    : {report['format']}")
     print(f"  shows matched      : {report['shows_found']}")
+    print(f"  shows to follow    : {report['shows_to_follow']}")
+    print(f"  shows to archive   : {report['shows_to_archive']}")
     print(f"  watch rows read    : {report['watch_rows_read']}")
     print(f"  episodes marked    : {report['episodes_marked']}")
     print(f"  already known      : {report['episodes_already_known']}")
     print(f"  episodes unmatched : {report['episodes_unmatched']}")
+    print(f"  unnumbered specials: {report['specials_skipped']}")
     if report["shows_unmatched"]:
         print("\n  Shows that could not be matched:")
         for name in report["shows_unmatched"][:30]:
@@ -38,9 +42,18 @@ async def cmd_import(args: argparse.Namespace) -> None:
     source = Path(args.path).expanduser()
     if not source.exists():
         raise SystemExit(f"No such file or directory: {source}")
+    last = [""]
+
+    def progress(stage: str, done: int, total: int) -> None:
+        line = f"{stage}: {done}/{total}" if total else stage
+        if line != last[0]:
+            print(f"\r  {line:<60}", end="", flush=True)
+            last[0] = line
+
     report = await importer.run_import(
-        source, dry_run=not args.commit, follow_shows=not args.no_follow
+        source, dry_run=not args.commit, follow_shows=not args.no_follow, progress=progress
     )
+    print()
     _print_report(report)
     if not args.commit:
         print("\nNothing was written. Re-run with --commit to apply.")

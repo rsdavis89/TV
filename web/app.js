@@ -156,6 +156,11 @@ function showCard(card, options = {}) {
     lines.push(`<div class="card-line muted">Last watched ${esc(last.code)} · ${esc(airLabel(last.watched_at))}</div>`);
   }
 
+  // Explains a next-up that looks too early: you watched this show out of order.
+  if (card.gaps) {
+    lines.push(`<div class="card-line muted">${card.gaps} earlier episode${card.gaps === 1 ? '' : 's'} never marked watched</div>`);
+  }
+
   const remaining = progress.remaining > 1
     ? `<span class="pill">${progress.remaining} to watch</span>`
     : '';
@@ -190,7 +195,7 @@ async function viewHome() {
   const data = await api('/home');
   updateBadge(data.new_since_last_visit);
 
-  const total = data.counts.ready + data.counts.scheduled + data.counts.waiting + data.counts.complete;
+  const total = Object.values(data.counts).reduce((sum, n) => sum + n, 0) - data.counts.episodes_ready;
   if (!total) {
     main.innerHTML = `
       <div class="empty">
@@ -204,6 +209,7 @@ async function viewHome() {
   main.innerHTML = [
     section('Ready to watch', data.ready, data.counts.episodes_ready ? `${data.counts.episodes_ready} episodes` : ''),
     section('Coming up', data.scheduled),
+    section('Not started yet', data.not_started, `${data.counts.not_started} shows`),
     section('Waiting for more', data.waiting),
     section('Finished', data.complete),
   ].join('') || '<div class="empty">Nothing to show yet.</div>';
@@ -498,7 +504,7 @@ async function viewSettings() {
           <ul>${imports.map((job) => `
             <li>${esc(job.created_at.slice(0, 16).replace('T', ' '))} —
                 ${esc(job.filename || 'upload')} (${esc(job.status)}),
-                ${job.report.episodes_marked ?? 0} episodes</li>`).join('')}
+                ${(job.report || {}).episodes_marked ?? 0} episodes</li>`).join('')}
           </ul>
         </div>` : ''}
     </section>
@@ -529,23 +535,58 @@ async function runImport(dryRun) {
   body.append('dry_run', dryRun ? 'true' : 'false');
   body.append('follow_shows', document.getElementById('import-follow').checked ? 'true' : 'false');
 
-  target.innerHTML = '<div class="report">Working through the export… this can take a minute for a big library.</div>';
+  target.innerHTML = '<div class="report">Uploading…</div>';
   try {
-    const report = await api('/import', { method: 'POST', body });
-    target.innerHTML = renderImportReport(report);
-    if (!dryRun) toast(`Imported ${report.episodes_marked} episodes`);
+    const { job_id: jobId } = await api('/import', { method: 'POST', body });
+    await pollImport(jobId, target, dryRun);
   } catch (error) {
     target.innerHTML = `<div class="report">${esc(error.message)}</div>`;
   }
 }
 
+// A full library is several hundred shows against a rate-limited API, so the
+// import runs server-side and we watch it.
+async function pollImport(jobId, target, dryRun) {
+  for (;;) {
+    const job = await api(`/import/${jobId}`);
+    if (job.status === 'failed') {
+      target.innerHTML = `<div class="report"><strong>Import failed</strong><br>${esc(job.error || '')}</div>`;
+      return;
+    }
+    if (job.report) {
+      target.innerHTML = renderImportReport(job.report);
+      if (!dryRun) {
+        toast(`Imported ${job.report.episodes_marked} episodes`);
+        updateBadge(0);
+      }
+      return;
+    }
+    const percent = job.total ? Math.round((100 * job.done) / job.total) : 0;
+    target.innerHTML = `
+      <div class="report">
+        <strong>${esc(job.stage || 'Working')}</strong>
+        ${job.total ? `<div class="kv"><span>${job.done} of ${job.total}</span><span>${percent}%</span></div>
+          <div class="progress"><i style="width:${percent}%"></i></div>` : ''}
+        <p class="muted" style="margin:8px 0 0">
+          Matching every show against TVmaze takes a few minutes for a large library.
+          You can leave this page open, or come back later — it keeps running.
+        </p>
+      </div>`;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
+
 function renderImportReport(report) {
   const rows = [
+    ['Detected format', report.format],
     ['Shows matched', report.shows_found],
+    [report.dry_run ? 'Shows to follow' : 'Shows followed', report.shows_to_follow],
+    [report.dry_run ? 'Shows to archive' : 'Shows archived', report.shows_to_archive],
     ['Watch rows read', report.watch_rows_read],
     [report.dry_run ? 'Episodes that would be marked' : 'Episodes marked', report.episodes_marked],
     ['Already in your library', report.episodes_already_known],
     ['Episodes not found on TVmaze', report.episodes_unmatched],
+    ['Unnumbered specials skipped', report.specials_skipped],
   ];
   const list = (title, items) => (items && items.length
     ? `<p style="margin:10px 0 0"><strong>${esc(title)}</strong></p>
@@ -560,6 +601,7 @@ function renderImportReport(report) {
       ${list('Could not identify these shows', report.shows_unmatched)}
       ${list('Matched by title only — check these', report.shows_guessed)}
       ${list('Episodes with no TVmaze counterpart', report.episodes_unmatched_sample)}
+      ${list('Specials TV Time filed without a number', report.specials_skipped_sample)}
     </div>`;
 }
 

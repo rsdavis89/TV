@@ -117,6 +117,13 @@ SCHEMA = [
         report     TEXT
     );
     """,
+    # v2: imports run in the background, so they report progress as they go.
+    """
+    ALTER TABLE import_job ADD COLUMN stage TEXT;
+    ALTER TABLE import_job ADD COLUMN done INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE import_job ADD COLUMN total INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE import_job ADD COLUMN error TEXT;
+    """,
 ]
 
 

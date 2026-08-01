@@ -361,6 +361,39 @@ def last_watched_episode(show_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def gaps_before_furthest(show_id: int) -> int:
+    """Unwatched episodes that sit behind the furthest point you have reached.
+
+    Watching a show out of order — dipping into a long-running series, or
+    starting at a later season — leaves holes earlier in the run. Up-next points
+    at the first of those holes, which is right, but only makes sense if you can
+    see how many there are.
+    """
+    conn = connect()
+    furthest = conn.execute(
+        """
+        SELECT e.season AS season, e.number AS number FROM watch w
+        JOIN episode e ON e.id = w.episode_id
+        WHERE w.show_id = ? AND e.is_special = 0
+        ORDER BY e.season DESC, e.number DESC
+        LIMIT 1
+        """,
+        (show_id,),
+    ).fetchone()
+    if furthest is None:
+        return 0
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n FROM episode e
+        LEFT JOIN watch w ON w.episode_id = e.id
+        WHERE e.show_id = ? AND e.is_special = 0 AND w.episode_id IS NULL
+          AND (e.season < ? OR (e.season = ? AND e.number < ?))
+        """,
+        (show_id, furthest["season"], furthest["season"], furthest["number"]),
+    ).fetchone()
+    return row["n"] or 0
+
+
 def _status_for(show: sqlite3.Row, nxt: sqlite3.Row | None, prog: dict) -> str:
     if nxt is None:
         return "complete" if (show["status"] or "") == "Ended" else "caught_up"
@@ -385,6 +418,8 @@ def show_card(show_id: int) -> dict | None:
         "next": episode_public(nxt) if nxt else None,
         "last_watched": episode_public(last) if last else None,
         "status": _status_for(row, nxt, prog),
+        "started": prog["watched"] > 0,
+        "gaps": gaps_before_furthest(show_id) if prog["watched"] else 0,
         "following": follow is not None,
         "archived": bool(follow["archived"]) if follow else False,
         "favorite": bool(follow["favorite"]) if follow else False,
@@ -401,8 +436,16 @@ def home() -> dict:
     """The main screen: everything grouped by what you can do with it."""
     cards = [card for card in (show_card(sid) for sid in followed_ids()) if card]
 
+    # A show you are part-way through is the thing you actually want to resume,
+    # so it is ordered by when you last watched it. Shows you follow but have
+    # never started would otherwise bury them, so they get their own section.
     ready = sorted(
-        [c for c in cards if c["status"] == "ready"],
+        [c for c in cards if c["status"] == "ready" and c["started"]],
+        key=lambda c: (c["last_watched"] or {}).get("watched_at") or "",
+        reverse=True,
+    )
+    not_started = sorted(
+        [c for c in cards if c["status"] == "ready" and not c["started"]],
         key=lambda c: (c["next"] or {}).get("airstamp") or "",
         reverse=True,
     )
@@ -422,11 +465,13 @@ def home() -> dict:
     )
     return {
         "ready": ready,
+        "not_started": not_started,
         "scheduled": scheduled,
         "waiting": waiting,
         "complete": complete,
         "counts": {
             "ready": len(ready),
+            "not_started": len(not_started),
             "scheduled": len(scheduled),
             "waiting": len(waiting),
             "complete": len(complete),

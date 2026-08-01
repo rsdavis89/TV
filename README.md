@@ -41,31 +41,57 @@ docker compose up -d
 
 ## Importing your TV Time export
 
-TV Time's export is a zip of CSVs, and its exact shape has changed over the
-years. Rather than assume one layout, the importer reads the header of every
-CSV in the archive and works out which columns hold the show, season, episode
-and watch date. Shows are matched to TVmaze by their TVDB id where the export
-has one, and by title otherwise.
+A TV Time GDPR export (`gdprdata.zip`) is about fifty CSVs dumped straight out
+of their databases. Only eight of them have anything to do with viewing
+history; the rest are access tokens, IP logs, device records and Facebook
+likes. Several of those have columns generic enough — `name`, `region_name` —
+that a naive importer will happily follow a city or a Facebook page as if it
+were a TV show. So the importer recognises the export and reads only the files
+that matter:
+
+| File | What is taken from it |
+| --- | --- |
+| `tracking-prod-records-v2.csv` | The full watch history (TVDB id, season, episode, date) and current follow/archive state |
+| `followed_tv_show.csv`, `user_tv_show_data.csv` | Follow and archive state for older accounts |
+| `tracking-prod-records.csv`, `seen_episode_source.csv`, `seen_episode_latest.csv`, `rewatched_episode.csv`, `watched_on_episode.csv` | Older per-feature history tables |
+
+Everything else is listed in the report as ignored. Shows are matched to TVmaze
+through the TVDB id TV Time stores, falling back to a title search only when
+that fails. Older tables record a show by name and newer ones by id, so the two
+are folded together before anything is looked up.
+
+Your follow state is carried across rather than flattened: shows you had
+archived come in archived, and shows you had unfollowed stay out of your
+library while keeping their watch history in your stats.
 
 In the app: **More → Import from TV Time**, choose the zip, press **Preview**.
 Nothing is written yet — you get a report of what was found, which shows could
-not be identified, and which were matched by title alone (worth a glance, since
-titles are ambiguous). If it looks right, press **Import for real**.
+not be identified, and which were matched by title alone. If it looks right,
+press **Import for real**.
 
 From the command line:
 
 ```bash
-python -m app.cli import ~/Downloads/tv-time-export.zip           # preview
-python -m app.cli import ~/Downloads/tv-time-export.zip --commit  # apply
+python -m app.cli import ~/Downloads/gdprdata.zip           # preview
+python -m app.cli import ~/Downloads/gdprdata.zip --commit  # apply
 ```
 
-Importing is idempotent — running it twice will not double-count anything, so
-it is safe to re-run after fixing up a CSV by hand.
+An import of a few hundred shows takes several minutes, because TVmaze is rate
+limited and every show needs its episode list. It runs in the background and
+the page reports progress, so you can close the tab and come back. Importing is
+idempotent — running it twice will not double-count anything.
 
-If your export turns out to use a layout the sniffer does not recognise, any
-CSV with a show column, a season column, an episode column and a date column
-will import, so a quick spreadsheet reshape is always a fallback. The preview
-report names the columns it picked for each file, which tells you what it saw.
+Two things will show up in the report and are worth knowing about:
+
+- **Unnumbered specials.** TV Time files specials as season 0 or episode 0,
+  which is a placeholder rather than a number, so those rows have nothing to
+  match against and are counted separately from real misses.
+- **Shows TVmaze does not have under that TVDB id** — usually TV movies. These
+  are named in the report rather than dropped silently, along with anything
+  matched by title alone, which is where a wrong match would hide.
+
+If you have some other CSV instead, the importer falls back to sniffing column
+headers: anything with a show, a season, an episode and a date will import.
 
 ## How "next up" works
 
@@ -74,17 +100,25 @@ order** — the first gap in your run, which is what TV Time did. Specials are
 kept out of progress and up-next but are still listed and tickable on the show
 page.
 
-If you have gaps you do not care about, the `⟵` button next to any episode
-marks it and everything before it as watched.
+If you watched a show out of order, that first gap can be a long way behind
+where you actually got to, so the card says how many earlier episodes are
+unmarked. The `⟵` button next to any episode marks it and everything before it
+as watched, which clears the backlog in one tap.
 
-A show lands in one of four groups:
+A show lands in one of five groups:
 
 | Group | Meaning |
 | --- | --- |
-| Ready to watch | The next episode has aired |
+| Ready to watch | You have started it and the next episode has aired |
 | Coming up | You are current; the next episode has a date |
+| Not started yet | You follow it but have not watched an episode |
 | Waiting for more | You are current; nothing is scheduled yet |
 | Finished | The show has ended and you have seen it all |
+
+"Ready to watch" is ordered by when you last watched each show, so whatever you
+were in the middle of is at the top. Shows you follow but never started are
+split out rather than mixed in — with a few hundred followed shows they would
+otherwise bury everything you are actually watching.
 
 ## New episode alerts
 

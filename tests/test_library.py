@@ -119,18 +119,44 @@ def test_last_watched_follows_watch_time_not_episode_order(database):
 
 
 def test_home_groups_shows_by_what_you_can_do(database):
-    ready_id = seed(database, show_id=1, name="Ready Show")
+    started_id = seed(database, show_id=1, name="Started Show")
+    library.mark_watched(101)
     seed(
         database,
         show_id=2,
         name="Upcoming Show",
         episodes=[make_episode(401, 1, 1, stamp(5), show_id=2)],
     )
+    seed(
+        database,
+        show_id=3,
+        name="Never Started",
+        episodes=[make_episode(501, 1, 1, stamp(-2), show_id=3)],
+    )
 
     home = library.home()
-    assert [card["show"]["id"] for card in home["ready"]] == [ready_id]
+    assert [card["show"]["id"] for card in home["ready"]] == [started_id]
     assert [card["show"]["id"] for card in home["scheduled"]] == [2]
+    assert [card["show"]["id"] for card in home["not_started"]] == [3]
     assert home["counts"]["ready"] == 1
+    assert home["counts"]["not_started"] == 1
+
+
+def test_ready_shows_are_ordered_by_when_you_last_watched(database):
+    seed(database, show_id=1, name="Older")
+    seed(
+        database,
+        show_id=2,
+        name="Newer",
+        episodes=[
+            make_episode(601, 1, 1, stamp(-40), show_id=2),
+            make_episode(602, 1, 2, stamp(-39), show_id=2),
+        ],
+    )
+    library.mark_watched(101, watched_at="2024-01-01T00:00:00+00:00")
+    library.mark_watched(601, watched_at="2024-09-01T00:00:00+00:00")
+
+    assert [card["show"]["name"] for card in library.home()["ready"]] == ["Newer", "Older"]
 
 
 def test_upcoming_only_lists_future_airings_of_followed_shows(database):
@@ -201,3 +227,16 @@ def test_stats_totals(database):
     assert stats["minutes"] == 90
     assert stats["shows"] == 1
     assert stats["following"] == 1
+
+
+def test_gaps_before_furthest_counts_skipped_episodes(database):
+    show_id = seed(database)
+    assert library.gaps_before_furthest(show_id) == 0
+
+    # Watched the third episode only: two earlier ones are holes.
+    library.mark_watched(103)
+    assert library.gaps_before_furthest(show_id) == 2
+    assert library.show_card(show_id)["gaps"] == 2
+
+    library.mark_through(show_id, 103)
+    assert library.gaps_before_furthest(show_id) == 0

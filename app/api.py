@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel
 
-from . import auth, config, importer, library, refresh, tvmaze
+from . import auth, config, jobs, library, refresh, tvmaze
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
@@ -267,23 +267,30 @@ async def import_export(
     dry_run: bool = Form(True),
     follow_shows: bool = Form(True),
 ) -> dict:
+    """Start an import and return its job id; poll /api/import/{id} for progress."""
     suffix = Path(file.filename or "upload").suffix or ".zip"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
         shutil.copyfileobj(file.file, handle)
         temp_path = Path(handle.name)
-    try:
-        return await importer.run_import(
-            temp_path, dry_run=dry_run, follow_shows=follow_shows, filename=file.filename
-        )
-    finally:
-        temp_path.unlink(missing_ok=True)
+    job_id = jobs.start_import(
+        temp_path, filename=file.filename, dry_run=dry_run, follow_shows=follow_shows
+    )
+    return {"job_id": job_id}
+
+
+@router.get("/import/{job_id}")
+def import_status(job_id: int) -> dict:
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such import")
+    return job
 
 
 @router.get("/imports")
 def import_history(limit: int = Query(10, ge=1, le=50)) -> list[dict]:
     rows = connect().execute(
-        "SELECT id, created_at, filename, dry_run, status, report FROM import_job "
-        "ORDER BY id DESC LIMIT ?",
+        "SELECT id, created_at, filename, dry_run, status, stage, done, total, error, report "
+        "FROM import_job ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     output = []

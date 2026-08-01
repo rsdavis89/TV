@@ -257,6 +257,11 @@ async function viewHome() {
   }
 
   main.innerHTML = [
+    data.storage_warning ? `
+      <div class="alarm">
+        <strong>Your data is not being saved permanently</strong>
+        ${esc(data.storage_warning)}
+      </div>` : '',
     section('Priority watch', data.priority, '', { inPriority: true }),
     section('Ready to watch', data.ready, data.counts.episodes_ready ? `${data.counts.episodes_ready} episodes` : ''),
     section('Coming up', data.scheduled),
@@ -620,6 +625,13 @@ async function viewSettings() {
   const last = status.last_refresh || {};
 
   main.innerHTML = `
+    ${status.storage && status.storage.warning ? `
+      <div class="alarm">
+        <strong>Your data is not being saved permanently</strong>
+        ${esc(status.storage.warning)}
+        <div class="muted" style="margin-top:8px">Currently writing to ${esc(status.storage.database)}</div>
+      </div>` : ''}
+
     <section class="section">
       <div class="section-head"><h2>Library</h2></div>
       <div class="stat-grid">
@@ -664,13 +676,6 @@ async function viewSettings() {
           </ul>
         </div>` : ''}
     </section>
-
-    ${status.storage && status.storage.warning ? `
-      <div class="alarm">
-        <strong>Your data is not being saved permanently</strong>
-        ${esc(status.storage.warning)}
-        <div class="muted" style="margin-top:8px">Currently writing to ${esc(status.storage.database)}</div>
-      </div>` : ''}
 
     <section class="section">
       <div class="section-head"><h2>Backups</h2></div>

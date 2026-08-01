@@ -87,6 +87,9 @@ def get_home() -> dict:
     since = get_meta("last_seen_at")
     data["new_since_last_visit"] = len(library.new_since(since))
     data["last_refresh"] = refresh.last_refresh()
+    # Surfaced here as well as in More: this warning means the library is about
+    # to be lost, so it has to appear on the screen people actually open.
+    data["storage_warning"] = storage.status()["warning"]
     return data
 
 

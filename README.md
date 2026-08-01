@@ -165,8 +165,11 @@ or Archived. Favorites also import from TV Time, which stored an
 Up Next only knows about shows you already follow, which leaves open how
 anything gets onto that list. The **New** tab sweeps TVmaze's schedule for
 first episodes — season 1 episode 1 is a brand new show, any other season's
-first episode is a returning one — over the last two weeks and everything
-scheduled ahead.
+first episode is a returning one — over the last two weeks and the next three
+months. It reads as one rising timeline, oldest at the top through to furthest
+ahead, and opens at today: scroll up for what has already landed, down for
+what is coming. Unwatched episodes from shows you follow sit above it, and
+when there are any the tab opens there instead.
 
 Unfiltered that is around thirty English premieres a week, most of it food
 programming, true crime and sport. So it ships filtered to eleven services

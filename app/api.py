@@ -276,7 +276,7 @@ def calendar(
 @router.get("/premieres")
 def list_premieres(
     back: int = Query(14, ge=0, le=120),
-    ahead: int = Query(21, ge=0, le=120),
+    ahead: int = Query(90, ge=0, le=120),
     include_followed: bool = Query(False),
 ) -> dict:
     return premieres.listing(back_days=back, ahead_days=ahead, include_followed=include_followed)

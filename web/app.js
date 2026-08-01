@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-8';
+const APP_VERSION = '2026.08.02-9';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -19,6 +19,7 @@ const state = {
   searchQuery: '',
   returnTo: 'home',
   calendarJump: true,
+  newJump: true,
   showFilter: { filter: 'active', sort: 'name', q: '' },
   selecting: false,
   selected: new Set(),
@@ -117,6 +118,12 @@ function airLabel(stamp) {
   return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function localDay(stamp) {
+  const date = new Date(stamp);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
@@ -179,6 +186,7 @@ async function go(view, showId = null, { push = true } = {}) {
   // Opening Calendar from elsewhere starts at today; returning from a show
   // keeps where you were.
   if (view === 'calendar' && state.view !== 'show') state.calendarJump = true;
+  if (view === 'new' && state.view !== 'show') state.newJump = true;
 
   const arriving = viewKey(view, showId);
   // Tapping the tab you are already on jumps to the top, as tab bars do.
@@ -426,7 +434,7 @@ function selectedServices(defaults) {
 async function viewNew() {
   const [data, premieres] = await Promise.all([
     api('/new'),
-    api('/premieres?back=14&ahead=21'),
+    api('/premieres?back=14&ahead=90'),
   ]);
   await api('/seen', { method: 'POST' });
   updateBadge(0);
@@ -434,8 +442,11 @@ async function viewNew() {
   premiereDefaults = premieres.defaults;
   const services = selectedServices(premiereDefaults);
   const picked = premieres.premieres.filter((p) => services.has(p.channel));
-  const fresh = picked.filter((p) => p.aired);
-  const soon = picked.filter((p) => !p.aired);
+  // The API sorts newest-first so that trimming drops the oldest first. Flip it
+  // back to build one rising timeline: oldest above, furthest ahead at the
+  // bottom, today in the middle.
+  const past = picked.filter((p) => p.aired).reverse();
+  const ahead = picked.filter((p) => !p.aired).reverse();
 
   main.innerHTML = `
     ${data.episodes.length ? `
@@ -452,17 +463,14 @@ async function viewNew() {
     <div id="services-panel" class="hidden"></div>
 
     ${picked.length ? `
-      ${fresh.length ? `
-        <div class="date-head">Out now</div>
-        <div class="list">${fresh.map(premiereRow).join('')}</div>` : ''}
-      ${soon.length ? `
-        <div class="date-head" style="margin-top:18px">Coming soon</div>
-        <div class="list">${soon.map(premiereRow).join('')}</div>` : ''}
+      ${premiereDays(past)}
+      <div class="today-line" id="premieres-today"><span>Today</span></div>
+      ${premiereDays(ahead)}
     ` : premiereEmptyState(premieres)}
 
     <p class="muted" style="margin:16px 2px 0;font-size:12.5px">
       New shows and returning seasons, English only, from the last two weeks and
-      everything scheduled ahead. Already-followed shows are left out.
+      the next three months. Already-followed shows are left out.
       ${premieres.swept_at
         ? `Last checked ${esc(airLabel(premieres.swept_at))}.`
         : 'Not checked yet.'}
@@ -488,6 +496,35 @@ async function viewNew() {
     if (!panel.innerHTML) panel.innerHTML = servicesPanel(premieres, services);
     panel.classList.toggle('hidden');
   });
+
+  // Open at today, so the past sits above and scrolling up walks backwards.
+  // Unwatched episodes from shows you follow win, though: they sit at the top
+  // and they are the reason the tab has a badge.
+  if (state.newJump) {
+    state.newJump = false;
+    const anchor = document.getElementById('premieres-today');
+    if (anchor && !data.episodes.length && past.length) {
+      pendingScroll = Math.max(
+        anchor.getBoundingClientRect().top + window.scrollY - TOPBAR_OFFSET, 0
+      );
+    }
+  }
+}
+
+// One heading per day, so the timeline reads as dates rather than two piles.
+// Grouped by the local day rather than the stamp's UTC date, or a late-evening
+// airing would sit under tomorrow's heading with today's time beside it.
+function premiereDays(items) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const key = localDay(item.airstamp);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+
+  return [...groups.entries()].map(([day, rows]) => `
+    <div class="date-head">${esc(dayHeading(day))}</div>
+    <div class="list">${rows.map(premiereRow).join('')}</div>`).join('');
 }
 
 // Never claim there is nothing out there when the truth is we have not looked.
@@ -565,7 +602,7 @@ function premiereRow(item) {
       <div class="row-body">
         <div class="row-title">${esc(item.show_name)} ${badge}</div>
         <div class="row-sub">${esc(meta)}</div>
-        <div class="row-sub">${esc(airLabel(item.airstamp))}</div>
+        <div class="row-sub">${esc(timeOf(new Date(item.airstamp)))}</div>
       </div>
       <button class="secondary" data-add="${item.show_id}">Add</button>
     </div>`;

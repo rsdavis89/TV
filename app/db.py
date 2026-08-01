@@ -128,6 +128,27 @@ SCHEMA = [
     """
     ALTER TABLE follow ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
     """,
+    # v4: premieres found by sweeping the schedule, for finding things to add.
+    """
+    CREATE TABLE IF NOT EXISTS premiere (
+        episode_id  INTEGER PRIMARY KEY,
+        show_id     INTEGER NOT NULL,
+        show_name   TEXT,
+        season      INTEGER,
+        airstamp    TEXT,
+        channel     TEXT,
+        kind        TEXT,
+        genres      TEXT,
+        summary     TEXT,
+        image       TEXT,
+        show_status TEXT,
+        rating      REAL,
+        runtime     INTEGER,
+        fetched_at  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS premiere_airstamp_idx ON premiere(airstamp);
+    CREATE INDEX IF NOT EXISTS premiere_show_idx ON premiere(show_id);
+    """,
 ]
 
 

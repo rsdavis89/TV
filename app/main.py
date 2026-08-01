@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, backup, config, db, refresh, storage, tvmaze
+from . import auth, backup, config, db, premieres, refresh, storage, tvmaze
 from .api import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     tasks = [
         asyncio.create_task(refresh.scheduler()),
         asyncio.create_task(backup.scheduler()),
+        asyncio.create_task(premieres.scheduler()),
     ]
     where = storage.status()
     log.info(

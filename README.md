@@ -10,7 +10,9 @@ you own.
 - **Up Next** — every show you follow, grouped into what you can watch now,
   what is coming, and what you have finished. One tap marks an episode watched
   and rolls the show forward.
-- **New** — episodes that aired since your last visit, with a badge on the tab.
+- **New** — two things: episodes that aired since your last visit from shows
+  you follow, and **premieres** — new shows and returning seasons on the
+  services you care about, so there is somewhere to find things to add.
 - **Calendar** — one timeline through today. It opens at a Today marker with
   the next five weeks below; scroll up to walk backwards through what already
   aired, three months by default. Past episodes show whether you watched them,
@@ -157,6 +159,28 @@ I want to get to" — conflating them turned the first into a wishlist.
 The Shows tab filters by Following, Favorites, Priority watch, Never started
 or Archived. Favorites also import from TV Time, which stored an
 `is_favorited` flag.
+
+## Finding new things to follow
+
+Up Next only knows about shows you already follow, which leaves open how
+anything gets onto that list. The **New** tab sweeps TVmaze's schedule for
+first episodes — season 1 episode 1 is a brand new show, any other season's
+first episode is a returning one — over the last two weeks and the next three.
+
+Unfiltered that is around thirty English premieres a week, most of it food
+programming, true crime and sport. So it ships filtered to eleven services
+(Netflix, Prime Video, HBO, HBO Max, Apple TV, Paramount+, Peacock, Hulu,
+Disney+, AMC+, MGM+), which brings it to roughly ten a week. **Services** on
+that tab opens the full list, grouped into streaming, US broadcast and cable,
+UK and Ireland, and unscripted and sport — every channel TVmaze has actually
+seen a premiere on, with counts.
+
+Shows you already follow are left out, since a returning season of something
+you watch is already covered by your episode tracking. Tapping a premiere opens
+the show so you can read about it before adding.
+
+The sweep is a request per day per schedule, so it runs at most twice a day and
+caches into a table the tab reads instantly.
 
 ## New episode alerts
 

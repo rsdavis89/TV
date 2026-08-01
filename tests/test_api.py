@@ -314,3 +314,13 @@ def test_opening_an_unknown_show_still_404s(client, monkeypatch):
 
     monkeypatch.setattr(library.tvmaze, "get_show_with_episodes", missing)
     assert client.get("/api/shows/999999").status_code == 404
+
+
+def test_premieres_endpoint_shape(client):
+    body = client.get("/api/premieres").json()
+
+    for key in ("premieres", "channels", "defaults", "groups", "window"):
+        assert key in body, key
+    # The default services are the ones the UI ticks on first run.
+    assert "Netflix" in body["defaults"]
+    assert "Prime Video" in body["defaults"]

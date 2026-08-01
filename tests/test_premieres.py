@@ -1,0 +1,178 @@
+"""Premiere sweeping: the schedule walk that finds things worth adding."""
+
+import json
+
+import pytest
+
+from app import library, premieres
+from app.db import connect, tx, utcnow
+
+
+def schedule_item(episode_id, show_id, name, season, number, airstamp,
+                  channel="Netflix", language="English", web=True):
+    channel_field = "webChannel" if web else "network"
+    return {
+        "id": episode_id,
+        "season": season,
+        "number": number,
+        "airstamp": airstamp,
+        "_embedded": {
+            "show": {
+                "id": show_id,
+                "name": name,
+                "language": language,
+                "genres": ["Drama"],
+                "status": "Running",
+                "summary": "<p>A <b>show</b>.</p>",
+                "image": {"medium": "http://example.com/m.jpg"},
+                "rating": {"average": 8.1},
+                "averageRuntime": 50,
+                channel_field: {"name": channel},
+            }
+        },
+    }
+
+
+def test_only_first_episodes_count_as_premieres():
+    assert premieres._normalise(schedule_item(1, 10, "A", 1, 1, "2026-08-01T00:00:00+00:00"))
+    # Episode 4 of a season is not a premiere.
+    assert premieres._normalise(schedule_item(2, 10, "A", 1, 4, "2026-08-01T00:00:00+00:00")) is None
+
+
+def test_season_one_is_a_new_show_and_anything_else_is_a_return():
+    new = premieres._normalise(schedule_item(1, 10, "A", 1, 1, "2026-08-01T00:00:00+00:00"))
+    back = premieres._normalise(schedule_item(2, 11, "B", 4, 1, "2026-08-01T00:00:00+00:00"))
+    assert new["kind"] == "series"
+    assert back["kind"] == "season"
+    assert back["season"] == 4
+
+
+def test_non_english_and_channelless_entries_are_dropped():
+    assert premieres._normalise(
+        schedule_item(1, 10, "A", 1, 1, "2026-08-01T00:00:00+00:00", language="Japanese")
+    ) is None
+
+    item = schedule_item(2, 11, "B", 1, 1, "2026-08-01T00:00:00+00:00")
+    item["_embedded"]["show"].pop("webChannel")
+    assert premieres._normalise(item) is None
+
+
+def test_broadcast_entries_use_the_network_name():
+    row = premieres._normalise(
+        schedule_item(1, 10, "A", 1, 1, "2026-08-01T00:00:00+00:00", channel="ABC", web=False)
+    )
+    assert row["channel"] == "ABC"
+
+
+def test_summary_html_is_stripped_from_premieres():
+    row = premieres._normalise(schedule_item(1, 10, "A", 1, 1, "2026-08-01T00:00:00+00:00"))
+    assert row["summary"] == "A show."
+
+
+def store(database, rows):
+    with tx() as conn:
+        for row in rows:
+            columns = ", ".join(row)
+            marks = ", ".join(f":{k}" for k in row)
+            conn.execute(f"INSERT OR REPLACE INTO premiere ({columns}) VALUES ({marks})", row)
+
+
+def make_row(episode_id, show_id, name, season, airstamp, channel="Netflix"):
+    return {
+        "episode_id": episode_id, "show_id": show_id, "show_name": name,
+        "season": season, "airstamp": airstamp, "channel": channel,
+        "kind": "series" if season == 1 else "season",
+        "genres": json.dumps(["Drama"]), "summary": None, "image": None,
+        "show_status": "Running", "rating": 8.0, "runtime": 50, "fetched_at": utcnow(),
+    }
+
+
+def test_listing_hides_shows_you_already_follow(database):
+    from test_library import seed, stamp
+
+    seed(database, show_id=1, name="Followed")
+    store(database, [
+        make_row(900, 1, "Followed", 3, stamp(-2)),
+        make_row(901, 77, "Stranger", 1, stamp(-1)),
+    ])
+
+    listing = premieres.listing(back_days=14, ahead_days=21)
+    assert [p["show_id"] for p in listing["premieres"]] == [77]
+
+    # But the channel tally still counts everything found.
+    assert dict(listing["channels"])["Netflix"] == 2
+
+    everything = premieres.listing(back_days=14, ahead_days=21, include_followed=True)
+    assert len(everything["premieres"]) == 2
+
+
+def test_listing_respects_the_window_and_orders_newest_first(database):
+    from test_library import stamp
+
+    store(database, [
+        make_row(900, 70, "Long ago", 1, stamp(-200)),
+        make_row(901, 71, "Recent", 1, stamp(-3)),
+        make_row(902, 72, "Soon", 1, stamp(4)),
+        make_row(903, 73, "Far off", 1, stamp(90)),
+    ])
+
+    names = [p["show_name"] for p in premieres.listing(back_days=14, ahead_days=21)["premieres"]]
+    assert names == ["Soon", "Recent"]
+
+
+def test_listing_marks_what_has_already_aired(database):
+    from test_library import stamp
+
+    store(database, [
+        make_row(900, 70, "Out", 1, stamp(-1)),
+        make_row(901, 71, "Upcoming", 1, stamp(3)),
+    ])
+
+    by_name = {p["show_name"]: p for p in premieres.listing()["premieres"]}
+    assert by_name["Out"]["aired"] is True
+    assert by_name["Upcoming"]["aired"] is False
+
+
+def test_prune_drops_only_ancient_rows(database):
+    from test_library import stamp
+
+    store(database, [
+        make_row(900, 70, "Ancient", 1, stamp(-200)),
+        make_row(901, 71, "Recent", 1, stamp(-5)),
+    ])
+
+    assert premieres.prune(keep_days=120) == 1
+    remaining = database.execute("SELECT show_name FROM premiere").fetchall()
+    assert [r["show_name"] for r in remaining] == ["Recent"]
+
+
+def test_sweep_is_rate_limited_between_runs(database):
+    from app.db import set_meta
+
+    assert premieres.due_for_sweep() is True
+    set_meta("premieres_swept_at", utcnow())
+    assert premieres.due_for_sweep() is False
+
+
+@pytest.mark.asyncio
+async def test_sweep_stores_what_it_finds(database, monkeypatch):
+    from test_library import stamp
+
+    async def fake_get(path, params=None, attempts=4):
+        if params.get("date") != premieres.datetime.now(premieres.timezone.utc).date().isoformat():
+            return []
+        return [
+            schedule_item(500, 60, "Fresh Thing", 1, 1, stamp(0)),
+            schedule_item(501, 61, "Returning Thing", 2, 1, stamp(0)),
+            schedule_item(502, 62, "Mid-season", 1, 6, stamp(0)),
+        ]
+
+    monkeypatch.setattr(premieres.tvmaze, "_get", fake_get)
+    report = await premieres.sweep(back_days=0, ahead_days=0)
+
+    # Two premieres per schedule endpoint, deduped by episode id.
+    assert report["found"] == 2
+    rows = database.execute("SELECT show_name, kind FROM premiere ORDER BY episode_id").fetchall()
+    assert [(r["show_name"], r["kind"]) for r in rows] == [
+        ("Fresh Thing", "series"), ("Returning Thing", "season")
+    ]

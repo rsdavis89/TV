@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-6';
+const APP_VERSION = '2026.08.02-7';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -408,25 +408,122 @@ function updatePriorityBadge(count) {
 
 /* -------------------------------------------------------------- new view */
 
+// The defaults the server last told us about. The toggle handler needs them:
+// with nothing stored yet, the effective selection *is* the defaults, and
+// starting from an empty set would wipe every service on the first tap.
+let premiereDefaults = [];
+
+function selectedServices(defaults) {
+  const raw = localStorage.getItem('tv.services');
+  if (raw === null) return new Set(defaults);
+  try {
+    return new Set(JSON.parse(raw));
+  } catch (_) {
+    return new Set(defaults);
+  }
+}
+
 async function viewNew() {
-  const data = await api('/new');
+  const [data, premieres] = await Promise.all([
+    api('/new'),
+    api('/premieres?back=14&ahead=21'),
+  ]);
   await api('/seen', { method: 'POST' });
   updateBadge(0);
 
-  if (!data.episodes.length) {
-    main.innerHTML = `
-      <div class="empty">
-        <strong>Nothing new right now</strong>
-        Episodes that air after your last visit land here.
-      </div>`;
-    return;
-  }
+  premiereDefaults = premieres.defaults;
+  const services = selectedServices(premiereDefaults);
+  const picked = premieres.premieres.filter((p) => services.has(p.channel));
+  const fresh = picked.filter((p) => p.aired);
+  const soon = picked.filter((p) => !p.aired);
 
   main.innerHTML = `
-    <p class="muted" style="margin:0 2px 14px">
-      ${data.episodes.length} unwatched episode${data.episodes.length === 1 ? '' : 's'} aired recently.
-    </p>
-    <div class="list">${data.episodes.map(newRow).join('')}</div>`;
+    ${data.episodes.length ? `
+      <div class="section-head"><h2>From shows you follow</h2>
+        <span class="muted">${data.episodes.length} unwatched</span></div>
+      <div class="list">${data.episodes.map(newRow).join('')}</div>` : `
+      <div class="section-head"><h2>From shows you follow</h2></div>
+      <p class="muted" style="margin:0 2px 20px">Nothing new since your last visit.</p>`}
+
+    <div class="section-head" style="margin-top:26px">
+      <h2>Premieres</h2>
+      <button class="ghost" id="services-toggle">Services (${services.size})</button>
+    </div>
+    <div id="services-panel" class="hidden"></div>
+
+    ${picked.length ? `
+      ${fresh.length ? `
+        <div class="date-head">Out now</div>
+        <div class="list">${fresh.map(premiereRow).join('')}</div>` : ''}
+      ${soon.length ? `
+        <div class="date-head" style="margin-top:18px">Coming soon</div>
+        <div class="list">${soon.map(premiereRow).join('')}</div>` : ''}
+    ` : `
+      <p class="muted" style="margin:0 2px">
+        No premieres on your selected services in this window.
+        ${premieres.premieres.length ? `${premieres.premieres.length} were found elsewhere — widen your services above.` : ''}
+      </p>`}
+
+    <p class="muted" style="margin:16px 2px 0;font-size:12.5px">
+      New shows and returning seasons, English only, from the last two weeks and
+      the next three. Already-followed shows are left out.
+      ${premieres.swept_at ? `Checked ${esc(airLabel(premieres.swept_at))}.` : ''}
+    </p>`;
+
+  document.getElementById('services-toggle').addEventListener('click', () => {
+    const panel = document.getElementById('services-panel');
+    if (!panel.innerHTML) panel.innerHTML = servicesPanel(premieres, services);
+    panel.classList.toggle('hidden');
+  });
+}
+
+function servicesPanel(premieres, services) {
+  const counts = Object.fromEntries(premieres.channels);
+  const listed = new Set();
+  const group = (title, names) => {
+    const rows = names.filter((name) => {
+      if (listed.has(name)) return false;
+      listed.add(name);
+      return counts[name] || services.has(name);
+    });
+    if (!rows.length) return '';
+    return `
+      <p class="muted" style="margin:12px 2px 6px;font-size:12px;text-transform:uppercase;letter-spacing:.08em">${esc(title)}</p>
+      ${rows.map((name) => `
+        <label class="checkline">
+          <input type="checkbox" data-service="${esc(name)}" ${services.has(name) ? 'checked' : ''}>
+          ${esc(name)} ${counts[name] ? `<span class="muted">· ${counts[name]}</span>` : ''}
+        </label>`).join('')}`;
+  };
+
+  const groups = Object.entries(premieres.groups).map(([title, names]) => group(title, names)).join('');
+  const other = Object.keys(counts).filter((name) => !listed.has(name)).sort();
+
+  return `
+    <div class="report" style="margin-bottom:14px">
+      ${groups}
+      ${other.length ? group('Also showing premieres', other) : ''}
+      <div class="card-actions" style="margin-top:12px">
+        <button class="secondary" id="services-reset">Reset to defaults</button>
+      </div>
+    </div>`;
+}
+
+function premiereRow(item) {
+  const badge = item.kind === 'series'
+    ? '<span class="pill good">New show</span>'
+    : `<span class="pill">Season ${item.season}</span>`;
+  const meta = [item.channel, (item.genres || []).slice(0, 2).join(', ')].filter(Boolean).join(' · ');
+  return `
+    <div class="row" data-open="${item.show_id}">
+      ${poster(item.image, 'thumb', item.show_name)}
+      <div class="row-body">
+        <div class="row-title">${esc(item.show_name)} ${badge}</div>
+        <div class="row-sub">${esc(meta)}</div>
+        <div class="row-sub">${esc(airLabel(item.airstamp))}</div>
+      </div>
+      <button class="secondary" data-add="${item.show_id}">Add</button>
+    </div>`;
 }
 
 function newRow(episode) {
@@ -1214,7 +1311,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-backup-now], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-service], #services-reset, [data-backup-now], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
@@ -1227,6 +1324,19 @@ document.addEventListener('click', async (event) => {
   }
 
   if (data.bulk) return runBulk(data.bulk);
+
+  if (data.service !== undefined) {
+    const services = selectedServices(premiereDefaults);
+    if (target.checked) services.add(data.service);
+    else services.delete(data.service);
+    localStorage.setItem('tv.services', JSON.stringify([...services]));
+    return render();
+  }
+
+  if (target.id === 'services-reset') {
+    localStorage.removeItem('tv.services');
+    return render();
+  }
 
   if (data.expand) {
     if (state.expanded.has(data.expand)) state.expanded.delete(data.expand);

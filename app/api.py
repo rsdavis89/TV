@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import auth, backup, config, importer, jobs, library, refresh, storage, tvmaze
+from . import auth, backup, config, importer, jobs, library, premieres, refresh, storage, tvmaze
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
@@ -271,6 +271,20 @@ def calendar(
     forward: int = Query(35, ge=0, le=120),
 ) -> dict:
     return library.calendar(back_days=back, forward_days=forward)
+
+
+@router.get("/premieres")
+def list_premieres(
+    back: int = Query(14, ge=0, le=120),
+    ahead: int = Query(21, ge=0, le=120),
+    include_followed: bool = Query(False),
+) -> dict:
+    return premieres.listing(back_days=back, ahead_days=ahead, include_followed=include_followed)
+
+
+@router.post("/premieres/refresh")
+async def refresh_premieres() -> dict:
+    return await premieres.sweep()
 
 
 @router.get("/new")

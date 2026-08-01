@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-1';
+const APP_VERSION = '2026.08.02-2';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -18,6 +18,7 @@ const state = {
   searchResults: null,
   searchQuery: '',
   returnTo: 'home',
+  calendarJump: true,
   showFilter: { filter: 'active', sort: 'name', q: '' },
   selecting: false,
   selected: new Set(),
@@ -132,6 +133,9 @@ async function go(view, showId = null) {
   }
   // Remember where a show was opened from, so Back returns there.
   if (view === 'show' && state.view !== 'show') state.returnTo = state.view;
+  // Opening Calendar from elsewhere starts at today; returning from a show
+  // keeps where you were.
+  if (view === 'calendar' && state.view !== 'show') state.calendarJump = true;
 
   const arriving = viewKey(view, showId);
   // Tapping the tab you are already on jumps to the top, as tab bars do.
@@ -146,10 +150,18 @@ async function go(view, showId = null) {
   await render(target);
 }
 
+// Height of the sticky header, so an anchored scroll does not tuck under it.
+const TOPBAR_OFFSET = 58;
+
+// A view may set this while rendering to request a specific scroll position,
+// which wins over both the restored position and the caller's request.
+let pendingScroll = null;
+
 async function render(scrollTarget = null) {
   // A re-render in place (marking an episode watched) should not move the page,
   // so hold the current position unless a navigation asked for a specific one.
   const keep = scrollTarget === null ? window.scrollY : scrollTarget;
+  pendingScroll = null;
 
   document.querySelectorAll('.bulkbar').forEach((bar) => bar.remove());
   document.body.classList.remove('selecting');
@@ -169,7 +181,10 @@ async function render(scrollTarget = null) {
     main.innerHTML = `<div class="empty"><strong>Something went wrong</strong>${esc(error.message)}</div>`;
   }
   // After layout, or the page may not yet be tall enough to scroll that far.
-  requestAnimationFrame(() => window.scrollTo(0, keep));
+  requestAnimationFrame(() => {
+    window.scrollTo(0, pendingScroll !== null ? pendingScroll : keep);
+    pendingScroll = null;
+  });
 }
 
 /* ------------------------------------------------------------- home view */
@@ -343,33 +358,52 @@ async function viewCalendar() {
       </select>
     </div>`;
 
-  const nothing = !data.upcoming.length && !data.recent.length;
-  main.innerHTML = picker + (nothing ? `
-    <div class="empty">
-      <strong>No airings in this window</strong>
-      Nothing you follow aired recently or has a confirmed date coming up.
-    </div>` : `
-    ${data.upcoming.length ? `
-      <div class="section-head" style="margin-top:6px"><h2>Coming up</h2></div>
-      ${groupByDay(data.upcoming, false)}` : ''}
-    ${data.recent.length ? `
-      <div class="section-head" style="margin-top:22px">
-        <h2>Already aired</h2>
-        <span class="muted">${data.unwatched_recent} unwatched</span>
-      </div>
-      ${groupByDay(data.recent, true)}
-      ${data.truncated ? `<p class="muted" style="margin:10px 2px">
-        Showing the most recent ${data.recent.length}. Narrow the range to see fewer.
-      </p>` : ''}` : ''}`);
+  if (!data.upcoming.length && !data.recent.length) {
+    main.innerHTML = picker + `
+      <div class="empty">
+        <strong>No airings in this window</strong>
+        Nothing you follow aired recently or has a confirmed date coming up.
+      </div>`;
+    document.getElementById('lookback').addEventListener('change', onLookbackChange);
+    return;
+  }
 
-  document.getElementById('lookback').addEventListener('change', (event) => {
-    localStorage.setItem('tv.lookback', event.target.value);
-    render(0);
-  });
+  // One continuous timeline, oldest at the top. The API returns the past
+  // newest-first so that capping trims the oldest, so flip it back here.
+  const past = [...data.recent].reverse();
+
+  main.innerHTML = picker
+    + (data.truncated ? `<p class="muted" style="margin:0 2px 12px">
+         Showing the most recent ${data.recent.length}. Narrow the range for fewer.
+       </p>` : '')
+    + (past.length ? `<p class="muted" style="margin:0 2px 12px">
+         ${data.unwatched_recent} unwatched in this window. Scroll up for older.
+       </p>` : '')
+    + groupByDay(past, true)
+    + `<div class="today-line" id="calendar-today"><span>Today</span></div>`
+    + groupByDay(data.upcoming, false);
+
+  document.getElementById('lookback').addEventListener('change', onLookbackChange);
+
+  // Open at today, so the past sits above and scrolling up walks backwards.
+  // Skipped when returning from a show, where the saved position should win.
+  if (state.calendarJump) {
+    state.calendarJump = false;
+    const anchor = document.getElementById('calendar-today');
+    if (anchor) {
+      pendingScroll = Math.max(
+        anchor.getBoundingClientRect().top + window.scrollY - TOPBAR_OFFSET, 0
+      );
+    }
+  }
 }
 
-// Episodes arrive newest-first when looking back, oldest-first when looking
-// ahead; either way they are already in the order the day groups should follow.
+function onLookbackChange(event) {
+  localStorage.setItem('tv.lookback', event.target.value);
+  state.calendarJump = true;
+  render(0);
+}
+
 function groupByDay(episodes, past) {
   const groups = new Map();
   episodes.forEach((episode) => {

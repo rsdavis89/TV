@@ -280,3 +280,11 @@ def test_app_js_carries_a_version_matching_what_the_server_reads():
     source = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text()
     declared = re.search(r"APP_VERSION\s*=\s*'([^']+)'", source).group(1)
     assert declared == storage.served_app_version()
+
+
+def test_status_exposes_the_inputs_behind_its_verdict(client):
+    """The UI states 'mounted volume' or 'container disk' from these two."""
+    reported = client.get("/api/status").json()["storage"]
+
+    assert "in_container" in reported
+    assert reported["on_container_disk"] in (True, False, None)

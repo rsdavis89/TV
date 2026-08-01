@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.01-8';
+const APP_VERSION = '2026.08.01-9';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -624,6 +624,15 @@ function renderEpisode(showId, episode) {
 
 /* --------------------------------------------------------- settings view */
 
+// State the verdict either way. A checker that only speaks up when unhappy is
+// indistinguishable from one that is broken and silent.
+function storageKind(store) {
+  if (!store.in_container) return 'Local disk';
+  if (store.on_container_disk === true) return 'Container disk — NOT persistent';
+  if (store.on_container_disk === false) return 'Mounted volume ✓';
+  return 'Unknown';
+}
+
 async function viewSettings() {
   const [status, imports, backups] = await Promise.all([
     api('/status'), api('/imports?limit=5'), api('/backups'),
@@ -708,6 +717,7 @@ async function viewSettings() {
           <div class="kv"><span>Size</span><span>${Math.max(Math.round(status.storage.size_bytes / 1024), 1)} KB</span></div>
           <div class="kv"><span>Created</span><span>${esc(airLabel(status.storage.created_at))}</span></div>
           <div class="kv"><span>Restarts survived</span><span>${Math.max(status.storage.starts - 1, 0)}</span></div>
+          <div class="kv"><span>Storage</span><span>${esc(storageKind(status.storage))}</span></div>
           <p class="muted" style="margin:8px 0 0;font-size:12.5px">
             ${status.storage.starts > 1
               ? 'This database has survived a restart, so your data is being kept between deploys.'

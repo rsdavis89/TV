@@ -54,6 +54,9 @@ A volume is a disk that survives restarts. Your watch history lives on it.
 Without this, your library is wiped on every restart and no backup can save
 you, because the backups live on the same disk.
 
+The Trial plan includes 0.5 GB of volume storage, which is far more than this
+needs — a large library plus its backups is a few tens of megabytes.
+
 ## Step 4 — set a password
 
 Your app will be on the public internet, so it needs a password. In
@@ -65,6 +68,10 @@ Your app will be on the public internet, so it needs a password. In
 
 While you are there, `TV_DATA_DIR` should be `/data`. The `Dockerfile` already
 sets that, so you only need to add it if you changed something.
+
+Do **not** set `TV_PORT`. Railway assigns a port through its own `PORT`
+variable and routes traffic to it; the app reads that automatically. Setting
+`TV_PORT` overrides it and Railway will not be able to reach the app.
 
 Railway redeploys automatically after a variable change.
 
@@ -138,8 +145,13 @@ many times as you like.
 
 ## If something goes wrong
 
-- **"Application failed to respond"** right after deploying — the build is
-  probably still running. Check the **Deployments** tab.
+- **"dockerfile invalid: docker VOLUME ... is not supported"** — Railway
+  manages its own storage and rejects any `VOLUME` line in a Dockerfile. There
+  is none any more; make sure your deployment is building the latest commit.
+- **"Application failed to respond"** right after deploying — usually the build
+  is still running, so check the **Deployments** tab. If the build succeeded
+  and it still says this, make sure `TV_PORT` is *not* set in Variables: it
+  overrides the port Railway routes to.
 - **Everything vanished after a restart** — the volume is missing or not
   mounted at `/data`. Re-check step 3.
 - **The password screen never appears** — `TV_PASSWORD` is not set. Anyone with

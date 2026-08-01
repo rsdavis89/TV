@@ -134,3 +134,41 @@ def test_home_exposes_every_group_the_front_end_renders(client, database):
     for group in ("priority", "ready", "not_started", "scheduled", "waiting", "complete"):
         assert group in home, group
         assert group in home["counts"], group
+
+
+def test_port_falls_back_to_the_platform_variable(monkeypatch):
+    """Hosted platforms hand the app a port through PORT; TV_PORT still wins."""
+    import importlib
+
+    from app import config as config_module
+
+    def resolved(**env):
+        for key in ("TV_PORT", "PORT"):
+            monkeypatch.delenv(key, raising=False)
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        return importlib.reload(config_module).PORT
+
+    try:
+        assert resolved() == 8484
+        assert resolved(PORT="3000") == 3000
+        assert resolved(TV_PORT="9000") == 9000
+        assert resolved(TV_PORT="9000", PORT="3000") == 9000
+        assert resolved(PORT="not-a-number") == 8484
+    finally:
+        importlib.reload(config_module)
+
+
+def test_dockerfile_has_no_volume_instruction():
+    """Railway and similar hosts reject a Dockerfile that declares VOLUME."""
+    from pathlib import Path
+
+    dockerfile = (Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    instructions = [
+        line.split()[0].upper()
+        for line in dockerfile.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert "VOLUME" not in instructions
+    # And the image must not pin a port, or the platform cannot route to it.
+    assert "TV_PORT=" not in dockerfile

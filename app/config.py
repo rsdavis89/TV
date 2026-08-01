@@ -17,13 +17,20 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None or not raw.strip():
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+    return _first_env_int((name,), default)
+
+
+def _first_env_int(names: tuple[str, ...], default: int) -> int:
+    """First of these variables that holds a number wins."""
+    for name in names:
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            return int(raw)
+        except ValueError:
+            continue
+    return default
 
 
 # Where the SQLite database lives. Keep this on a volume you back up.
@@ -57,4 +64,6 @@ TVMAZE_RATE = _env_int("TV_TVMAZE_RATE", 18)
 TVMAZE_RATE_WINDOW = _env_int("TV_TVMAZE_RATE_WINDOW", 10)
 
 HOST = os.environ.get("TV_HOST", "0.0.0.0")
-PORT = _env_int("TV_PORT", 8484)
+# Hosted platforms hand the app a port through PORT and route traffic to it.
+# TV_PORT wins when set, so an explicit choice still beats the platform's.
+PORT = _first_env_int(("TV_PORT", "PORT"), 8484)

@@ -240,3 +240,76 @@ def test_gaps_before_furthest_counts_skipped_episodes(database):
 
     library.mark_through(show_id, 103)
     assert library.gaps_before_furthest(show_id) == 0
+
+
+def test_favorite_and_priority_flags_round_trip(database):
+    show_id = seed(database)
+    card = library.show_card(show_id)
+    assert card["favorite"] is False and card["priority"] is False
+
+    library.set_favorite(show_id, True)
+    library.set_priority(show_id, True)
+    card = library.show_card(show_id)
+    assert card["favorite"] is True and card["priority"] is True
+
+    library.set_priority(show_id, False)
+    assert library.show_card(show_id)["priority"] is False
+    assert library.show_card(show_id)["favorite"] is True
+
+
+def test_priority_shows_are_pinned_above_ready_ones(database):
+    seed(database, show_id=1, name="Recently Watched")
+    seed(
+        database,
+        show_id=2,
+        name="Pinned",
+        episodes=[
+            make_episode(701, 1, 1, stamp(-40), show_id=2),
+            make_episode(702, 1, 2, stamp(-39), show_id=2),
+        ],
+    )
+    library.mark_watched(101, watched_at="2024-09-01T00:00:00+00:00")
+    library.mark_watched(701, watched_at="2024-01-01T00:00:00+00:00")
+    library.set_priority(2, True)
+
+    home = library.home()
+    assert [c["show"]["name"] for c in home["priority"]] == ["Pinned"]
+    assert [c["show"]["name"] for c in home["ready"]] == ["Recently Watched"]
+    assert home["counts"]["priority"] == 1
+    # Episodes waiting for you counts both sections.
+    assert home["counts"]["episodes_ready"] == library.progress(1)["remaining"] + library.progress(2)["remaining"]
+
+
+def test_priority_show_with_nothing_to_watch_stays_in_its_own_group(database):
+    """Pinning is about jumping the queue, not about permanent promotion."""
+    show_id = seed(database)
+    for episode_id in (101, 102, 103):
+        library.mark_watched(episode_id)
+    library.set_priority(show_id, True)
+
+    home = library.home()
+    assert home["priority"] == []
+    assert [c["show"]["id"] for c in home["scheduled"]] == [show_id]
+
+
+def test_priority_shows_order_started_before_unstarted(database):
+    seed(
+        database,
+        show_id=1,
+        name="Started",
+        episodes=[
+            make_episode(801, 1, 1, stamp(-10), show_id=1),
+            make_episode(802, 1, 2, stamp(-9), show_id=1),
+        ],
+    )
+    seed(
+        database,
+        show_id=2,
+        name="Untouched",
+        episodes=[make_episode(901, 1, 1, stamp(-5), show_id=2)],
+    )
+    library.mark_watched(801)
+    library.set_priority(1, True)
+    library.set_priority(2, True)
+
+    assert [c["show"]["name"] for c in library.home()["priority"]] == ["Started", "Untouched"]

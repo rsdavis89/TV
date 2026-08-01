@@ -85,13 +85,22 @@ def get_home() -> dict:
 
 @router.get("/shows")
 def list_shows(
-    archived: bool = Query(False),
+    filter: str = Query("active", pattern="^(active|favorites|priority|archived)$"),
     q: str = Query(""),
     sort: str = Query("name"),
 ) -> list[dict]:
     ids = library.followed_ids(include_archived=True)
     cards = [card for card in (library.show_card(sid) for sid in ids) if card]
-    cards = [card for card in cards if card["archived"] == archived]
+
+    if filter == "archived":
+        cards = [card for card in cards if card["archived"]]
+    elif filter == "favorites":
+        cards = [card for card in cards if card["favorite"]]
+    elif filter == "priority":
+        cards = [card for card in cards if card["priority"]]
+    else:
+        cards = [card for card in cards if not card["archived"]]
+
     if q:
         needle = q.lower()
         cards = [card for card in cards if needle in (card["show"]["name"] or "").lower()]
@@ -140,7 +149,13 @@ def archive_show(show_id: int, body: FlagBody) -> dict:
 @router.post("/shows/{show_id}/favorite")
 def favorite_show(show_id: int, body: FlagBody) -> dict:
     library.set_favorite(show_id, body.value)
-    return {"ok": True, "favorite": body.value}
+    return {"ok": True, "favorite": body.value, "card": library.show_card(show_id)}
+
+
+@router.post("/shows/{show_id}/priority")
+def priority_show(show_id: int, body: FlagBody) -> dict:
+    library.set_priority(show_id, body.value)
+    return {"ok": True, "priority": body.value, "card": library.show_card(show_id)}
 
 
 @router.post("/shows/{show_id}/refresh")

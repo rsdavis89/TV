@@ -124,6 +124,10 @@ SCHEMA = [
     ALTER TABLE import_job ADD COLUMN total INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE import_job ADD COLUMN error TEXT;
     """,
+    # v3: shows you want to get to next are pinned to the top of Up Next.
+    """
+    ALTER TABLE follow ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

@@ -214,6 +214,16 @@ button { font-family: inherit; }
 
 .pill.warn { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .pill.good { background: color-mix(in srgb, var(--good) 20%, transparent); color: var(--good); }
+.pill.prio { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+
+.star { color: var(--warn); }
+
+/* Favorite / Priority toggles read as pressed when the flag is set. */
+.secondary.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
 .progress {
   height: 4px;

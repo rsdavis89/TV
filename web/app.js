@@ -11,7 +11,7 @@ const state = {
   openSeasons: new Set(),
   searchResults: null,
   searchQuery: '',
-  showFilter: { archived: false, sort: 'name', q: '' },
+  showFilter: { filter: 'active', sort: 'name', q: '' },
 };
 
 const TITLES = {
@@ -164,12 +164,16 @@ function showCard(card, options = {}) {
   const remaining = progress.remaining > 1
     ? `<span class="pill">${progress.remaining} to watch</span>`
     : '';
+  const star = card.favorite ? '<span class="star" title="Favorite">&#9733;</span> ' : '';
+  const pin = card.priority && !options.inPriority
+    ? '<span class="pill prio">Priority</span> '
+    : '';
 
   return `
     <div class="card" data-show="${show.id}">
       ${poster(show.image, 'poster', show.name)}
       <div class="card-body">
-        <div class="card-title">${esc(show.name)} ${remaining}</div>
+        <div class="card-title">${star}${esc(show.name)} ${pin}${remaining}</div>
         ${lines.join('')}
         <div class="progress"><i style="width:${progress.percent}%"></i></div>
         <div class="card-actions">
@@ -182,12 +186,12 @@ function showCard(card, options = {}) {
     </div>`;
 }
 
-function section(title, cards, note = '') {
+function section(title, cards, note = '', options = {}) {
   if (!cards.length) return '';
   return `
     <section class="section">
       <div class="section-head"><h2>${esc(title)}</h2><span class="muted">${esc(note)}</span></div>
-      ${cards.map((card) => showCard(card)).join('')}
+      ${cards.map((card) => showCard(card, options)).join('')}
     </section>`;
 }
 
@@ -207,6 +211,7 @@ async function viewHome() {
   }
 
   main.innerHTML = [
+    section('Priority watch', data.priority, '', { inPriority: true }),
     section('Ready to watch', data.ready, data.counts.episodes_ready ? `${data.counts.episodes_ready} episodes` : ''),
     section('Coming up', data.scheduled),
     section('Not started yet', data.not_started, `${data.counts.not_started} shows`),
@@ -297,39 +302,54 @@ function dayHeading(day) {
 
 /* ------------------------------------------------------------ shows view */
 
+const SHOW_FILTERS = {
+  active: 'Following',
+  favorites: 'Favorites',
+  priority: 'Priority watch',
+  archived: 'Archived',
+};
+
 async function viewShows() {
-  const { archived, sort, q } = state.showFilter;
-  const params = new URLSearchParams({ archived, sort, q });
+  const { filter, sort, q } = state.showFilter;
+  const params = new URLSearchParams({ filter, sort, q });
   const cards = await api(`/shows?${params}`);
 
   main.innerHTML = `
     <div class="field">
-      <input type="search" id="show-filter" placeholder="Filter your shows" value="${esc(q)}">
+      <input type="search" id="show-search" placeholder="Filter your shows" value="${esc(q)}">
     </div>
     <div class="field" style="display:flex;gap:8px">
+      <select id="show-which">
+        ${Object.entries(SHOW_FILTERS).map(([value, label]) => `
+          <option value="${value}" ${filter === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}
+      </select>
       <select id="show-sort">
         <option value="name" ${sort === 'name' ? 'selected' : ''}>A–Z</option>
         <option value="recent" ${sort === 'recent' ? 'selected' : ''}>Recently watched</option>
         <option value="remaining" ${sort === 'remaining' ? 'selected' : ''}>Most left to watch</option>
         <option value="progress" ${sort === 'progress' ? 'selected' : ''}>Furthest along</option>
       </select>
-      <button class="secondary" id="toggle-archived">${archived ? 'Active' : 'Archived'}</button>
     </div>
     ${cards.length
-      ? cards.map((card) => showCard(card)).join('')
-      : `<div class="empty">No ${archived ? 'archived' : 'active'} shows here.</div>`}`;
+      ? `<p class="muted" style="margin:0 2px 12px">${cards.length} show${cards.length === 1 ? '' : 's'}</p>
+         ${cards.map((card) => showCard(card)).join('')}`
+      : `<div class="empty">${filter === 'favorites'
+            ? 'No favorites yet. Open a show and tap ☆ Favorite.'
+            : filter === 'priority'
+              ? 'Nothing marked priority. Open a show and tap ○ Priority to pin it to the top of Up Next.'
+              : `No ${esc(SHOW_FILTERS[filter].toLowerCase())} shows here.`}</div>`}`;
 
-  const filter = document.getElementById('show-filter');
-  filter.addEventListener('change', () => {
-    state.showFilter.q = filter.value.trim();
+  const search = document.getElementById('show-search');
+  search.addEventListener('change', () => {
+    state.showFilter.q = search.value.trim();
+    render();
+  });
+  document.getElementById('show-which').addEventListener('change', (event) => {
+    state.showFilter.filter = event.target.value;
     render();
   });
   document.getElementById('show-sort').addEventListener('change', (event) => {
     state.showFilter.sort = event.target.value;
-    render();
-  });
-  document.getElementById('toggle-archived').addEventListener('click', () => {
-    state.showFilter.archived = !state.showFilter.archived;
     render();
   });
 }
@@ -405,8 +425,16 @@ async function viewShowDetail() {
       </div>
     </div>
 
-    <div class="card-actions" style="margin-bottom:16px">
+    <div class="card-actions" style="margin-bottom:10px">
       ${next && next.aired ? `<button class="primary" data-watch="${next.id}">Watched ${esc(next.code)}</button>` : ''}
+      <button class="secondary ${card.favorite ? 'on' : ''}" data-favorite="${card.favorite ? 0 : 1}">
+        ${card.favorite ? '&#9733;' : '&#9734;'} Favorite
+      </button>
+      <button class="secondary ${card.priority ? 'on' : ''}" data-priority="${card.priority ? 0 : 1}">
+        ${card.priority ? '&#9679;' : '&#9675;'} Priority
+      </button>
+    </div>
+    <div class="card-actions" style="margin-bottom:16px">
       ${card.archived
         ? `<button class="secondary" data-archive="0">Unarchive</button>`
         : `<button class="secondary" data-archive="1">Archive</button>`}
@@ -694,7 +722,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
@@ -794,6 +822,26 @@ document.addEventListener('click', async (event) => {
       target.textContent = 'Add';
     }
     return;
+  }
+
+  if (data.favorite !== undefined) {
+    const on = data.favorite === '1';
+    await api(`/shows/${state.showId}/favorite`, {
+      method: 'POST',
+      body: JSON.stringify({ value: on }),
+    });
+    toast(on ? 'Added to favorites' : 'Removed from favorites');
+    return render();
+  }
+
+  if (data.priority !== undefined) {
+    const on = data.priority === '1';
+    await api(`/shows/${state.showId}/priority`, {
+      method: 'POST',
+      body: JSON.stringify({ value: on }),
+    });
+    toast(on ? 'Pinned to the top of Up Next' : 'No longer a priority');
+    return render();
   }
 
   if (data.archive !== undefined) {

@@ -206,6 +206,15 @@ def set_favorite(show_id: int, favorite: bool) -> None:
         )
 
 
+def set_priority(show_id: int, priority: bool) -> None:
+    """Priority shows are pinned to the top of Up Next when they have something
+    to watch. Favourites are a permanent label; priority is 'get to this next'."""
+    with tx() as conn:
+        conn.execute(
+            "UPDATE follow SET priority = ? WHERE show_id = ?", (1 if priority else 0, show_id)
+        )
+
+
 # --------------------------------------------------------------------------
 # watching
 # --------------------------------------------------------------------------
@@ -423,6 +432,7 @@ def show_card(show_id: int) -> dict | None:
         "following": follow is not None,
         "archived": bool(follow["archived"]) if follow else False,
         "favorite": bool(follow["favorite"]) if follow else False,
+        "priority": bool(follow["priority"]) if follow else False,
     }
 
 
@@ -436,16 +446,26 @@ def home() -> dict:
     """The main screen: everything grouped by what you can do with it."""
     cards = [card for card in (show_card(sid) for sid in followed_ids()) if card]
 
+    # Priority shows jump the queue, but only while they actually have an aired
+    # episode waiting — a pinned show you are caught up on is not actionable.
+    priority = sorted(
+        [c for c in cards if c["status"] == "ready" and c["priority"]],
+        key=lambda c: (
+            c["started"],
+            (c["last_watched"] or {}).get("watched_at") or "",
+        ),
+        reverse=True,
+    )
     # A show you are part-way through is the thing you actually want to resume,
     # so it is ordered by when you last watched it. Shows you follow but have
     # never started would otherwise bury them, so they get their own section.
     ready = sorted(
-        [c for c in cards if c["status"] == "ready" and c["started"]],
+        [c for c in cards if c["status"] == "ready" and c["started"] and not c["priority"]],
         key=lambda c: (c["last_watched"] or {}).get("watched_at") or "",
         reverse=True,
     )
     not_started = sorted(
-        [c for c in cards if c["status"] == "ready" and not c["started"]],
+        [c for c in cards if c["status"] == "ready" and not c["started"] and not c["priority"]],
         key=lambda c: (c["next"] or {}).get("airstamp") or "",
         reverse=True,
     )
@@ -464,18 +484,22 @@ def home() -> dict:
         reverse=True,
     )
     return {
+        "priority": priority,
         "ready": ready,
         "not_started": not_started,
         "scheduled": scheduled,
         "waiting": waiting,
         "complete": complete,
         "counts": {
+            "priority": len(priority),
             "ready": len(ready),
             "not_started": len(not_started),
             "scheduled": len(scheduled),
             "waiting": len(waiting),
             "complete": len(complete),
-            "episodes_ready": sum(c["progress"]["remaining"] for c in ready),
+            "episodes_ready": sum(
+                c["progress"]["remaining"] for c in (*priority, *ready)
+            ),
         },
     }
 

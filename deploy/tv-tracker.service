@@ -1,0 +1,27 @@
+; Systemd unit for running the tracker directly (no Docker).
+; Copy to /etc/systemd/system/tv-tracker.service, adjust the paths and user,
+; then: sudo systemctl enable --now tv-tracker
+
+[Unit]
+Description=TV Tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tv
+WorkingDirectory=/opt/tv-tracker
+EnvironmentFile=-/opt/tv-tracker/.env
+ExecStart=/opt/tv-tracker/.venv/bin/python -m app.main
+Restart=on-failure
+RestartSec=5
+
+; Basic hardening; the app only needs its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tv-tracker/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <title>TV Tracker</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card">
+    <h1>TV Tracker</h1>
+    <p class="muted">This library is password protected.</p>
+    <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+    <button type="submit" class="primary">Unlock</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <h1 id="view-title">Up Next</h1>
+    <div class="topbar-actions">
+      <button id="refresh-btn" class="icon-btn" title="Check for new episodes">&#8635;</button>
+    </div>
+  </header>
+
+  <main id="main"></main>
+
+  <nav class="tabbar">
+    <button class="tab" data-view="home"><span>&#9654;</span>Up Next</button>
+    <button class="tab" data-view="new"><span>&#10022;</span>New<i id="new-badge" class="badge hidden"></i></button>
+    <button class="tab" data-view="calendar"><span>&#128197;</span>Calendar</button>
+    <button class="tab" data-view="shows"><span>&#9776;</span>Shows</button>
+    <button class="tab" data-view="search"><span>&#128269;</span>Search</button>
+    <button class="tab" data-view="settings"><span>&#9881;</span>More</button>
+  </nav>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

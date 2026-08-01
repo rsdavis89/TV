@@ -1,0 +1,14 @@
+services:
+  tv:
+    build: .
+    image: tv-tracker
+    container_name: tv-tracker
+    restart: unless-stopped
+    ports:
+      - "8484:8484"
+    volumes:
+      - ./data:/data
+    environment:
+      # Set a password if this is reachable from outside your network.
+      TV_PASSWORD: "${TV_PASSWORD:-}"
+      TV_REFRESH_INTERVAL_HOURS: "6"

@@ -43,13 +43,23 @@ build takes a couple of minutes.
 
 A volume is a disk that survives restarts. Your watch history lives on it.
 
-1. Open your project → the service Railway just created.
-2. Tap **Variables / Settings** → find **Volumes** → **Add Volume**.
-3. Set the mount path to exactly:
+Volumes are **not** in the service's Variables or Settings tab — they are
+created on the project canvas, the screen showing your service as a box:
+
+1. Close the service panel with the **✕** in its top right, so you can see the
+   canvas.
+2. Tap **+ Create** (on a phone; on a desktop it is right-click on the canvas,
+   or `⌘K` → "volume").
+3. Choose **Volume**.
+4. Pick the **TV** service to attach it to.
+5. Set the mount path to exactly:
 
    ```
    /data
    ```
+
+   A leading slash, no dot. `./data` is a different place — inside the
+   container, wiped on every restart.
 
 Without this, your library is wiped on every restart and no backup can save
 you, because the backups live on the same disk.
@@ -57,21 +67,30 @@ you, because the backups live on the same disk.
 The Trial plan includes 0.5 GB of volume storage, which is far more than this
 needs — a large library plus its backups is a few tens of megabytes.
 
-## Step 4 — set a password
+## Step 4 — set the variables
 
-Your app will be on the public internet, so it needs a password. In
-**Variables**, add:
+Open the service → **Variables**.
+
+Railway may offer a list of **Suggested Variables** it found by reading this
+repository's `.env.example`. **Do not add them all.** Those values are the
+ones that suit a laptop, and two of them break a hosted deploy. Add exactly
+these two, by hand:
 
 | Name | Value |
 | --- | --- |
 | `TV_PASSWORD` | something only you know |
+| `TV_DATA_DIR` | `/data` |
 
-While you are there, `TV_DATA_DIR` should be `/data`. The `Dockerfile` already
-sets that, so you only need to add it if you changed something.
+Everything else has a sensible default. In particular:
 
-Do **not** set `TV_PORT`. Railway assigns a port through its own `PORT`
-variable and routes traffic to it; the app reads that automatically. Setting
-`TV_PORT` overrides it and Railway will not be able to reach the app.
+- **Never set `TV_PORT`.** Railway assigns a port through its own `PORT`
+  variable and routes traffic to it; the app reads that automatically. Setting
+  `TV_PORT` overrides it and nothing can reach the app.
+- **`TV_DATA_DIR` must be `/data`**, matching the volume's mount path — not
+  `./data`, which points inside the container.
+
+If you already added the suggested list, remove `TV_PORT` with the **✕** beside
+it and correct `TV_DATA_DIR` to `/data`.
 
 Railway redeploys automatically after a variable change.
 
@@ -152,8 +171,11 @@ many times as you like.
   is still running, so check the **Deployments** tab. If the build succeeded
   and it still says this, make sure `TV_PORT` is *not* set in Variables: it
   overrides the port Railway routes to.
-- **Everything vanished after a restart** — the volume is missing or not
-  mounted at `/data`. Re-check step 3.
+- **Everything vanished after a restart** — the volume is missing, or
+  `TV_DATA_DIR` does not match the volume's mount path. Both must be `/data`,
+  with a leading slash. Re-check step 3.
+- **Cannot find where to add a volume** — it is not in the service panel. Close
+  that panel first; volumes are created from the project canvas behind it.
 - **The password screen never appears** — `TV_PASSWORD` is not set. Anyone with
   the address can see your library until it is.
 - **Shows are not updating** — **More → Check now** forces it.

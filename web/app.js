@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-3';
+const APP_VERSION = '2026.08.02-4';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -660,7 +660,7 @@ async function viewSearch() {
 function renderSearchResults(results) {
   if (!results.length) return '<div class="empty">No matches on TVmaze.</div>';
   return `<div class="list">${results.map((show) => `
-    <div class="row">
+    <div class="row" data-open="${show.id}">
       ${poster(show.image, 'thumb', show.name)}
       <div class="row-body">
         <div class="row-title">${esc(show.name)}</div>
@@ -698,22 +698,29 @@ async function viewShowDetail() {
       </div>
     </div>
 
-    <div class="card-actions" style="margin-bottom:10px">
-      ${next && next.aired ? `<button class="primary" data-watch="${next.id}">Watched ${esc(next.code)}</button>` : ''}
-      <button class="secondary ${card.favorite ? 'on' : ''}" data-favorite="${card.favorite ? 0 : 1}">
-        ${card.favorite ? '&#9733;' : '&#9734;'} Favorite
-      </button>
-      <button class="secondary ${card.priority ? 'on' : ''}" data-priority="${card.priority ? 0 : 1}">
-        ${card.priority ? '&#9679;' : '&#9675;'} Priority
-      </button>
-    </div>
-    <div class="card-actions" style="margin-bottom:16px">
-      ${card.archived
-        ? `<button class="secondary" data-archive="0">Unarchive</button>`
-        : `<button class="secondary" data-archive="1">Archive</button>`}
-      <button class="secondary" data-resync="${show.id}">Re-sync</button>
-      <button class="ghost" data-remove="${show.id}">Remove</button>
-    </div>
+    ${card.following ? `
+      <div class="card-actions" style="margin-bottom:10px">
+        ${next && next.aired ? `<button class="primary" data-watch="${next.id}">Watched ${esc(next.code)}</button>` : ''}
+        <button class="secondary ${card.favorite ? 'on' : ''}" data-favorite="${card.favorite ? 0 : 1}">
+          ${card.favorite ? '&#9733;' : '&#9734;'} Favorite
+        </button>
+        <button class="secondary ${card.priority ? 'on' : ''}" data-priority="${card.priority ? 0 : 1}">
+          ${card.priority ? '&#9679;' : '&#9675;'} Priority
+        </button>
+      </div>
+      <div class="card-actions" style="margin-bottom:16px">
+        ${card.archived
+          ? `<button class="secondary" data-archive="0">Unarchive</button>`
+          : `<button class="secondary" data-archive="1">Archive</button>`}
+        <button class="secondary" data-resync="${show.id}">Re-sync</button>
+        <button class="ghost" data-remove="${show.id}">Remove</button>
+      </div>` : `
+      <div class="card-actions" style="margin-bottom:16px">
+        <button class="primary" data-add="${show.id}" data-stay="1">Add to my shows</button>
+      </div>
+      <p class="muted" style="margin:-8px 2px 16px;font-size:13px">
+        Not in your library yet. You can look through the episodes below first.
+      </p>`}
 
     ${show.summary ? `<p class="summary">${esc(show.summary)}</p>` : ''}
 
@@ -1237,6 +1244,7 @@ document.addEventListener('click', async (event) => {
         body: JSON.stringify({ tvmaze_id: Number(data.add) }),
       });
       toast(`Added ${card.show.name}`);
+      if (data.stay) return render();
       if (state.searchResults) {
         state.searchResults = state.searchResults.map((show) => (
           show.id === Number(data.add) ? { ...show, following: true } : show

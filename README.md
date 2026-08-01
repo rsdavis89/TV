@@ -17,6 +17,9 @@ you own.
   and unwatched ones can be ticked off without leaving the list.
 - **Shows** — your library with progress bars, per-episode ticks, "watch all
   through here", season toggles, and archiving for shows you have set aside.
+- **Search** — look a show up and open it before deciding: full episode list,
+  summary, seasons. Adding is a button on that page, not the only thing you can
+  do with a result.
 - **Import** — bring your TV Time export in, with a preview before anything is
   written.
 - Installs to your phone's home screen as a PWA and works offline for browsing.

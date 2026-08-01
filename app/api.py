@@ -129,10 +129,27 @@ def list_shows(
 
 
 @router.get("/shows/{show_id}")
-def get_show(show_id: int) -> dict:
+async def get_show(show_id: int) -> dict:
+    """A show's page, whether or not it is in your library.
+
+    Fetching one you have not added lets you look before deciding, which is the
+    obvious thing to want from a search result. The fetched data is cached like
+    any other; shows that are never added get cleared out by the refresh job.
+    """
+    detail = library.show_detail(show_id)
+    if detail is not None:
+        return detail
+
+    try:
+        await library.sync_show(show_id)
+    except tvmaze.NotFound:
+        raise HTTPException(status_code=404, detail="TVmaze has no show with that id")
+    except tvmaze.TVmazeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
     detail = library.show_detail(show_id)
     if detail is None:
-        raise HTTPException(status_code=404, detail="Show not in your library")
+        raise HTTPException(status_code=404, detail="Show not found")
     return detail
 
 

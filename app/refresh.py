@@ -68,6 +68,10 @@ async def refresh_all(force: bool = False) -> dict:
                 failed.append(show_id)
         after = _episode_counts(pending)
 
+        forgotten = library.forget_unused_shows()
+        if forgotten:
+            log.info("cleared %d show(s) that were previewed but never added", forgotten)
+
         report = {
             "at": utcnow(),
             "checked": len(show_ids),

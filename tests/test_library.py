@@ -437,3 +437,31 @@ def test_calendar_ignores_archived_shows(database):
 
     library.set_archived(1, True)
     assert library.calendar(back_days=30, forward_days=0)["recent"] == []
+
+
+def test_forget_unused_shows_clears_only_browsing_residue(database):
+    followed = seed(database, show_id=1, name="Followed")
+    # Watched but later removed from the library: history must survive.
+    seed(database, show_id=2, name="Removed But Watched",
+         episodes=[make_episode(2101, 1, 1, stamp(-5), show_id=2)])
+    library.mark_watched(2101)
+    library.unfollow_show(2)
+    # Only ever looked at from search: no follow row, nothing watched.
+    library.save_show(make_show(show_id=3, name="Just Peeked At"))
+    library.save_episodes(3, [make_episode(3101, 1, 1, stamp(-5), show_id=3)])
+
+    assert library.forget_unused_shows() == 1
+
+    remaining = {row["id"] for row in database.execute("SELECT id FROM show")}
+    assert remaining == {followed, 2}
+    # Its episodes went with it.
+    assert database.execute(
+        "SELECT COUNT(*) AS n FROM episode WHERE show_id = 3"
+    ).fetchone()["n"] == 0
+    # And the removed-but-watched show kept its history.
+    assert database.execute("SELECT COUNT(*) AS n FROM watch").fetchone()["n"] == 1
+
+
+def test_forget_unused_shows_is_a_no_op_on_a_tidy_library(database):
+    seed(database)
+    assert library.forget_unused_shows() == 0

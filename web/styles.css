@@ -82,7 +82,10 @@ main {
 
 .tab {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
+  /* Let tabs shrink below their label width so the bar itself never forces the
+     page sideways; the labels ellipsize instead. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -93,6 +96,10 @@ main {
   background: none;
   color: var(--muted);
   font-size: 10.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 

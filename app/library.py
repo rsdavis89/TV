@@ -238,6 +238,24 @@ def bulk_update(show_ids: list[int], action: str) -> dict:
     return {"action": action, "changed": max(changed, 0), "verb": verb}
 
 
+def forget_unused_shows() -> int:
+    """Drop shows that were only ever looked at.
+
+    Opening a search result caches the show and its episodes so it can be
+    previewed. Ones never added, and never watched, are just browsing residue —
+    anything with a follow row or a single watched episode is left alone.
+    """
+    with tx() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM show
+            WHERE id NOT IN (SELECT show_id FROM follow)
+              AND id NOT IN (SELECT show_id FROM watch)
+            """
+        )
+        return max(cursor.rowcount, 0)
+
+
 def unstarted_ids(include_archived: bool = False) -> list[int]:
     """Followed shows with nothing watched — the pile worth triaging."""
     clause = "" if include_archived else " AND f.archived = 0"

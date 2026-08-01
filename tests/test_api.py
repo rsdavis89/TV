@@ -291,3 +291,26 @@ def test_status_exposes_the_inputs_behind_its_verdict(client):
 
     assert "in_container" in reported
     assert reported["on_container_disk"] in (True, False, None)
+
+
+def test_a_show_you_have_not_added_can_still_be_opened(client, database):
+    """Tapping a search result should show the show, not a 404."""
+    response = client.get("/api/shows/4242")
+    assert response.status_code == 200, response.text
+
+    detail = response.json()
+    assert detail["following"] is False
+    assert detail["seasons"], "episodes should be listed for a preview"
+
+    # Previewing does not follow it.
+    assert client.get("/api/shows?filter=active").json() == []
+
+
+def test_opening_an_unknown_show_still_404s(client, monkeypatch):
+    from app import library, tvmaze
+
+    async def missing(show_id):
+        raise tvmaze.NotFound("nope")
+
+    monkeypatch.setattr(library.tvmaze, "get_show_with_episodes", missing)
+    assert client.get("/api/shows/999999").status_code == 404

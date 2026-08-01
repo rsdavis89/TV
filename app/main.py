@@ -56,7 +56,15 @@ async def lifespan(app: FastAPI):
         await tvmaze.close()
 
 
-app = FastAPI(title="TV Tracker", lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
+# The schema lives under /api so the gate below covers it. At FastAPI's default
+# /openapi.json it sits outside the prefix and is readable without logging in.
+app = FastAPI(
+    title="TV Tracker",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    redoc_url=None,
+)
 
 
 @app.middleware("http")

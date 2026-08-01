@@ -1,4 +1,6 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-httpx>=0.27
-python-multipart>=0.0.9
+# Upper bounds so a rebuild picks up patch and security releases but cannot
+# pull a new major version that changes behaviour under you.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+httpx>=0.27,<1.0
+python-multipart>=0.0.9,<1.0

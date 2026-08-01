@@ -351,6 +351,46 @@ python tools/make_icons.py    # regenerate PWA icons
 
 Interactive API docs run at `/api/docs` while the server is up.
 
+## Security
+
+The app holds one person's viewing history and no credentials beyond its own
+password, so the threat worth designing against is a stranger who finds the URL
+— not a targeted attack.
+
+**The gate.** Set `TV_PASSWORD` and everything under `/api` needs a session
+cookie, including the OpenAPI schema; without it the app is wide open, which is
+fine on a home network and not on the internet. The cookie is `HttpOnly` (no
+script can read it), `SameSite=Lax` (another site cannot make your browser act
+on your session), and `Secure` whenever the request arrived over TLS, so it is
+never sent in the clear. It carries a signed expiry and nothing else — there is
+no user data in it to tamper with, and a forged or expired one is refused.
+
+**Guessing.** Two wrong passwords cost nothing; after that each attempt waits
+longer before it is answered, up to ten seconds, which takes brute force off
+the table without ever locking you out of your own app — a correct password
+still works and clears the count. A flood large enough to outrun the delays
+trips a hard refusal for fifteen minutes.
+
+**Rotating credentials.** Changing `TV_PASSWORD` does not end sessions already
+issued, because the signing key is separate. To force every device to log in
+again, set `TV_SECRET_KEY` to a new random value (or delete the `secret_key`
+row from the `meta` table and restart).
+
+**Uploads.** Imports are capped at 100 MB, and archive members are read from
+the zip rather than extracted to disk, so a crafted archive cannot write
+outside it.
+
+**What is not hardened.** The container runs as root, which is one layer thinner
+than it could be; changing it needs the data volume's ownership to match, so it
+is deliberately left to whoever deploys it. There is no audit log. Dependencies
+float within a major version, so a rebuild picks up security releases without
+pinning you to a fixed set.
+
+**Keep out of git.** `data/`, `*.db` and `.env` are ignored, so the database,
+the backups and the password never enter the repository. Check before making a
+clone public: `git ls-files | grep -iE '\.env$|\.db$|^data/'` should print
+nothing.
+
 ## A note on data
 
 TVmaze episode numbering is occasionally different from TVDB's, which is what

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -16,6 +15,10 @@ from . import auth, backup, config, importer, jobs, library, premieres, refresh,
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
+
+# The largest export anyone should be uploading. A full TV Time archive is a
+# few megabytes; this is generous and still bounded.
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 
 class LoginBody(BaseModel):
@@ -55,17 +58,40 @@ def auth_status(request: Request) -> dict:
 
 
 @router.post("/auth/login")
-def login(body: LoginBody, response: Response) -> dict:
+async def login(body: LoginBody, request: Request, response: Response) -> dict:
     if not auth.enabled():
         return {"authenticated": True}
+
+    wait = auth.locked_out()
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many attempts. Try again in {max(wait // 60, 1)} minutes.",
+            headers={"Retry-After": str(wait)},
+        )
+
+    # Slow down before answering, not before checking, so a run of wrong guesses
+    # costs the guesser time while the right password still gets you in.
+    await asyncio.sleep(auth.failure_delay())
+
     if not auth.check_password(body.password):
+        auth.record_failure()
         raise HTTPException(status_code=401, detail="Wrong password")
+
+    auth.clear_failures()
     response.set_cookie(
         auth.COOKIE,
         auth.issue_token(),
         max_age=config.SESSION_DAYS * 86400,
         httponly=True,
         samesite="lax",
+        # Only over TLS, so the cookie is never sent in the clear. Checked per
+        # request rather than hardcoded, or a plain-HTTP LAN install could never
+        # log in. The forwarded header is what a platform proxy sets.
+        secure=(
+            request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+        ),
     )
     return {"authenticated": True}
 
@@ -346,9 +372,20 @@ async def import_export(
 ) -> dict:
     """Start an import and return its job id; poll /api/import/{id} for progress."""
     suffix = Path(file.filename or "upload").suffix or ".zip"
+    # Copy in bounded chunks and stop at the cap, so an oversized upload cannot
+    # fill the volume the database lives on before anything looks at it.
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
-        shutil.copyfileobj(file.file, handle)
         temp_path = Path(handle.name)
+        written = 0
+        while chunk := await file.read(1 << 20):
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                temp_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"That file is larger than {MAX_UPLOAD_BYTES // (1 << 20)} MB.",
+                )
+            handle.write(chunk)
     job_id = jobs.start_import(
         temp_path, filename=file.filename, dry_run=dry_run, follow_shows=follow_shows
     )

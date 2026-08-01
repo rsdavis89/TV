@@ -324,3 +324,133 @@ def test_premieres_endpoint_shape(client):
     # The default services are the ones the UI ticks on first run.
     assert "Netflix" in body["defaults"]
     assert "Prime Video" in body["defaults"]
+
+
+# --------------------------------------------------------------------------
+# the password gate
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def locked(client, monkeypatch):
+    """The same app with the password gate switched on."""
+    from app import auth, config as app_config
+
+    monkeypatch.setattr(app_config, "PASSWORD", "correct horse")
+    # The throttle really does sleep. Keep the shape, drop the wall-clock cost.
+    monkeypatch.setattr(auth, "MAX_DELAY_SECONDS", 0.01)
+    auth.clear_failures()
+    yield client
+    auth.clear_failures()
+
+
+def test_the_api_is_closed_until_you_log_in(locked):
+    assert locked.get("/api/home").status_code == 401
+    # The schema is part of the API, not a public page.
+    assert locked.get("/api/openapi.json").status_code == 401
+    # But the login route itself has to stay reachable.
+    assert locked.get("/api/auth/status").status_code == 200
+
+
+def test_a_wrong_password_is_rejected_and_a_right_one_lets_you_in(locked):
+    assert locked.post("/api/auth/login", json={"password": "nope"}).status_code == 401
+    assert locked.get("/api/home").status_code == 401
+
+    assert locked.post("/api/auth/login", json={"password": "correct horse"}).status_code == 200
+    assert locked.get("/api/home").status_code == 200
+
+
+def test_wrong_guesses_make_the_next_one_slower(database):
+    """Checked against the real constants, without paying the delay."""
+    from app import auth
+
+    auth.clear_failures()
+    try:
+        # A couple of typos should not cost anything.
+        for _ in range(auth.FREE_ATTEMPTS):
+            auth.record_failure()
+        assert auth.failure_delay() == 0
+
+        seen = []
+        for _ in range(6):
+            auth.record_failure()
+            seen.append(auth.failure_delay())
+
+        assert seen == sorted(seen), seen
+        assert seen[0] == 1
+        assert seen[-1] == auth.MAX_DELAY_SECONDS
+    finally:
+        auth.clear_failures()
+
+
+def test_the_throttle_is_wired_into_the_endpoint(locked):
+    from app import auth
+
+    for _ in range(auth.FREE_ATTEMPTS + 3):
+        locked.post("/api/auth/login", json={"password": "nope"})
+    assert auth.failure_delay() > 0
+
+
+def test_a_flood_of_guesses_is_refused_outright(locked):
+    from app import auth
+
+    for _ in range(auth.MAX_FAILURES):
+        auth.record_failure()
+
+    blocked = locked.post("/api/auth/login", json={"password": "nope"})
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+    # And the refusal is not itself a way past the gate.
+    assert locked.get("/api/home").status_code == 401
+
+
+def test_the_right_password_still_works_while_guesses_are_being_slowed(locked):
+    """A lockout would let an attacker keep the owner out; a delay must not."""
+    from app import auth
+
+    for _ in range(auth.FREE_ATTEMPTS + 3):
+        locked.post("/api/auth/login", json={"password": "nope"})
+    assert auth.failure_delay() > 0
+
+    assert locked.post("/api/auth/login", json={"password": "correct horse"}).status_code == 200
+    assert auth.failure_delay() == 0
+    assert locked.get("/api/home").status_code == 200
+
+
+def test_the_session_cookie_is_not_readable_by_scripts(locked):
+    response = locked.post("/api/auth/login", json={"password": "correct horse"})
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+
+
+def test_a_forged_session_cookie_is_refused(locked):
+    import time
+
+    from app import auth
+
+    future = str(int(time.time()) + 86400)
+    for forged in (f"{future}.deadbeef", future, "", f"{future}."):
+        assert auth.valid_token(forged) is False
+
+
+def test_an_expired_but_correctly_signed_token_is_refused(database):
+    import time
+
+    from app import auth
+
+    past = str(int(time.time()) - 10)
+    assert auth.valid_token(f"{past}.{auth._sign(past)}") is False
+
+
+def test_oversized_uploads_are_refused(client, monkeypatch):
+    from app import api
+
+    monkeypatch.setattr(api, "MAX_UPLOAD_BYTES", 1024)
+    response = client.post(
+        "/api/import",
+        files={"file": ("big.zip", b"x" * 4096, "application/zip")},
+        data={"dry_run": "true"},
+    )
+    assert response.status_code == 413

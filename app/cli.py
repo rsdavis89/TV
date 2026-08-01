@@ -74,11 +74,19 @@ async def cmd_add(args: argparse.Namespace) -> None:
 
 def cmd_next(args: argparse.Namespace) -> None:
     data = library.home()
-    if not data["ready"]:
-        print("Nothing waiting. Check 'scheduled' for what is coming.")
-    for card in data["ready"]:
+    # Priority first, then shows in progress. Shows you have never started are
+    # counted rather than listed; there can be hundreds of them.
+    waiting = [*data["priority"], *data["ready"]]
+    if not waiting:
+        print("Nothing in progress. Check 'scheduled' for what is coming.")
+    for card in waiting:
         nxt = card["next"]
-        print(f"{card['show']['name']:<40} {nxt['code']}  {nxt['name'] or ''}")
+        pin = "*" if card["priority"] else " "
+        print(f"{pin} {card['show']['name']:<38} {nxt['code']}  {nxt['name'] or ''}")
+
+    not_started = data["counts"]["not_started"]
+    if not_started:
+        print(f"\n{not_started} followed show(s) not started yet.")
     if args.upcoming:
         print("\nUpcoming:")
         for episode in library.upcoming(args.upcoming):

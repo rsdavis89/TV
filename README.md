@@ -11,7 +11,10 @@ you own.
   what is coming, and what you have finished. One tap marks an episode watched
   and rolls the show forward.
 - **New** — episodes that aired since your last visit, with a badge on the tab.
-- **Calendar** — the next five weeks of airings for the shows you follow.
+- **Calendar** — the next five weeks of airings, and by default the last three
+  months behind you, so you can see what aired while you were not looking. Past
+  episodes show whether you watched them, and unwatched ones can be ticked off
+  from the list.
 - **Shows** — your library with progress bars, per-episode ticks, "watch all
   through here", season toggles, and archiving for shows you have set aside.
 - **Import** — bring your TV Time export in, with a preview before anything is

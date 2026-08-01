@@ -373,3 +373,68 @@ def test_unstarted_ids_finds_shows_with_nothing_watched(database):
     library.set_archived(2, True)
     assert library.unstarted_ids() == []
     assert library.unstarted_ids(include_archived=True) == [2]
+
+
+def test_calendar_looks_backwards_as_well_as_forwards(database):
+    seed(
+        database,
+        episodes=[
+            make_episode(901, 1, 1, stamp(-200)),   # outside a 90 day window
+            make_episode(902, 1, 2, stamp(-40)),
+            make_episode(903, 1, 3, stamp(-2)),
+            make_episode(904, 1, 4, stamp(5)),
+        ],
+    )
+
+    window = library.calendar(back_days=90, forward_days=35)
+
+    assert [e["id"] for e in window["upcoming"]] == [904]
+    # Most recent first, and the 200-day-old episode is outside the window.
+    assert [e["id"] for e in window["recent"]] == [903, 902]
+    assert window["back_days"] == 90
+
+
+def test_calendar_marks_which_past_episodes_you_watched(database):
+    seed(
+        database,
+        episodes=[
+            make_episode(911, 1, 1, stamp(-10)),
+            make_episode(912, 1, 2, stamp(-3)),
+        ],
+    )
+    library.mark_watched(911)
+
+    window = library.calendar(back_days=30, forward_days=0)
+
+    by_id = {e["id"]: e for e in window["recent"]}
+    assert by_id[911]["watched"] is True
+    assert by_id[912]["watched"] is False
+    assert window["unwatched_recent"] == 1
+
+
+def test_calendar_with_no_lookback_matches_upcoming(database):
+    seed(database)
+    window = library.calendar(back_days=0, forward_days=10)
+
+    assert window["recent"] == []
+    assert [e["id"] for e in window["upcoming"]] == [e["id"] for e in library.upcoming(days=10)]
+
+
+def test_calendar_caps_a_long_lookback_keeping_the_newest(database):
+    episodes = [make_episode(1000 + i, 1, i + 1, stamp(-i - 1)) for i in range(10)]
+    seed(database, episodes=episodes)
+
+    window = library.calendar(back_days=365, forward_days=0, limit=4)
+
+    assert len(window["recent"]) == 4
+    assert window["truncated"] is True
+    # The four kept are the most recent, not the oldest.
+    assert [e["id"] for e in window["recent"]] == [1000, 1001, 1002, 1003]
+
+
+def test_calendar_ignores_archived_shows(database):
+    seed(database, episodes=[make_episode(921, 1, 1, stamp(-5))])
+    assert len(library.calendar(back_days=30, forward_days=0)["recent"]) == 1
+
+    library.set_archived(1, True)
+    assert library.calendar(back_days=30, forward_days=0)["recent"] == []

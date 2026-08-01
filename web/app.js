@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.01-9';
+const APP_VERSION = '2026.08.02-1';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -315,17 +315,62 @@ function newRow(episode) {
 
 /* --------------------------------------------------------- calendar view */
 
-async function viewCalendar() {
-  const episodes = await api('/upcoming?days=35');
-  if (!episodes.length) {
-    main.innerHTML = `
-      <div class="empty">
-        <strong>No airings scheduled</strong>
-        Nothing you follow has a confirmed air date in the next five weeks.
-      </div>`;
-    return;
-  }
+const LOOKBACK_OPTIONS = [
+  { days: 0, label: 'Upcoming only' },
+  { days: 30, label: 'Back 1 month' },
+  { days: 90, label: 'Back 3 months' },
+  { days: 180, label: 'Back 6 months' },
+];
 
+function lookbackDays() {
+  // Guard the raw value: Number(null) is 0, which is itself a valid choice
+  // ("Upcoming only"), so testing the number alone loses the default.
+  const raw = localStorage.getItem('tv.lookback');
+  if (raw === null) return 90;
+  const saved = Number(raw);
+  return LOOKBACK_OPTIONS.some((option) => option.days === saved) ? saved : 90;
+}
+
+async function viewCalendar() {
+  const back = lookbackDays();
+  const data = await api(`/calendar?back=${back}&forward=35`);
+
+  const picker = `
+    <div class="field">
+      <select id="lookback">
+        ${LOOKBACK_OPTIONS.map((o) => `
+          <option value="${o.days}" ${o.days === back ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const nothing = !data.upcoming.length && !data.recent.length;
+  main.innerHTML = picker + (nothing ? `
+    <div class="empty">
+      <strong>No airings in this window</strong>
+      Nothing you follow aired recently or has a confirmed date coming up.
+    </div>` : `
+    ${data.upcoming.length ? `
+      <div class="section-head" style="margin-top:6px"><h2>Coming up</h2></div>
+      ${groupByDay(data.upcoming, false)}` : ''}
+    ${data.recent.length ? `
+      <div class="section-head" style="margin-top:22px">
+        <h2>Already aired</h2>
+        <span class="muted">${data.unwatched_recent} unwatched</span>
+      </div>
+      ${groupByDay(data.recent, true)}
+      ${data.truncated ? `<p class="muted" style="margin:10px 2px">
+        Showing the most recent ${data.recent.length}. Narrow the range to see fewer.
+      </p>` : ''}` : ''}`);
+
+  document.getElementById('lookback').addEventListener('change', (event) => {
+    localStorage.setItem('tv.lookback', event.target.value);
+    render(0);
+  });
+}
+
+// Episodes arrive newest-first when looking back, oldest-first when looking
+// ahead; either way they are already in the order the day groups should follow.
+function groupByDay(episodes, past) {
   const groups = new Map();
   episodes.forEach((episode) => {
     const key = (episode.airstamp || '').slice(0, 10);
@@ -333,17 +378,22 @@ async function viewCalendar() {
     groups.get(key).push(episode);
   });
 
-  main.innerHTML = [...groups.entries()].map(([day, items]) => `
+  return [...groups.entries()].map(([day, items]) => `
     <div class="date-head">${esc(dayHeading(day))}</div>
     <div class="list">
       ${items.map((episode) => `
-        <div class="row" data-open="${episode.show_id}">
+        <div class="row ${past && episode.watched ? 'seen' : ''}" data-open="${episode.show_id}">
           ${poster(episode.show_image, 'thumb', episode.show_name)}
           <div class="row-body">
             <div class="row-title">${esc(episode.show_name)}</div>
             <div class="row-sub">${esc(episode.code)} · ${esc(episode.name || 'TBA')}</div>
             <div class="row-sub">${esc(timeOf(new Date(episode.airstamp)))}${episode.network ? ' · ' + esc(episode.network) : ''}</div>
           </div>
+          ${past
+            ? (episode.watched
+                ? '<span class="pill good">Watched</span>'
+                : `<button class="check" data-watch="${episode.id}" title="Mark watched">&#10003;</button>`)
+            : ''}
         </div>`).join('')}
     </div>`).join('');
 }

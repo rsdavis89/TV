@@ -248,6 +248,14 @@ def upcoming(days: int = Query(21, ge=1, le=120)) -> list[dict]:
     return library.upcoming(days)
 
 
+@router.get("/calendar")
+def calendar(
+    back: int = Query(0, ge=0, le=400),
+    forward: int = Query(35, ge=0, le=120),
+) -> dict:
+    return library.calendar(back_days=back, forward_days=forward)
+
+
 @router.get("/new")
 def new_episodes() -> dict:
     since = get_meta("last_seen_at")

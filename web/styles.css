@@ -454,3 +454,6 @@ body.selecting main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset
 
 .alarm strong { display: block; color: var(--danger); margin-bottom: 6px; font-size: 15px; }
 .alarm code { word-break: break-all; }
+
+/* Past airings you have already seen recede behind the ones you have not. */
+.row.seen .row-title, .row.seen .row-sub { opacity: .55; }

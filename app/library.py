@@ -580,23 +580,59 @@ def show_detail(show_id: int) -> dict | None:
     return card
 
 
-def upcoming(days: int = 14, include_unfollowed: bool = False) -> list[dict]:
-    """Airings for followed shows within the window, soonest first."""
-    start = now_iso()
-    end = (datetime.now(timezone.utc) + timedelta(days=days)).replace(microsecond=0).isoformat()
-    join = "" if include_unfollowed else "JOIN follow f ON f.show_id = e.show_id AND f.archived = 0"
-    rows = connect().execute(
-        f"""
-        SELECT e.*, s.name AS show_name, s.image AS show_image, s.network
-        FROM episode e
-        JOIN show s ON s.id = e.show_id
-        {join}
-        WHERE e.airstamp > ? AND e.airstamp <= ?
-        ORDER BY e.airstamp
-        """,
-        (start, end),
-    ).fetchall()
-    return [episode_public(row) for row in rows]
+def calendar(back_days: int = 0, forward_days: int = 21, limit: int = 600) -> dict:
+    """Airings for followed shows either side of now.
+
+    Looking back answers "what did I miss", so each episode carries whether you
+    have watched it. The window is capped because a few hundred followed shows
+    with daily broadcasts among them can produce thousands of rows over months.
+    """
+    now = now_iso()
+    start = (
+        (datetime.now(timezone.utc) - timedelta(days=max(back_days, 0)))
+        .replace(microsecond=0)
+        .isoformat()
+    )
+    end = (
+        (datetime.now(timezone.utc) + timedelta(days=max(forward_days, 0)))
+        .replace(microsecond=0)
+        .isoformat()
+    )
+
+    def query(lower: str, upper: str, order: str, cap: int) -> list[dict]:
+        rows = connect().execute(
+            f"""
+            SELECT e.*, s.name AS show_name, s.image AS show_image, s.network,
+                   w.watched_at
+            FROM episode e
+            JOIN show s ON s.id = e.show_id
+            JOIN follow f ON f.show_id = e.show_id AND f.archived = 0
+            LEFT JOIN watch w ON w.episode_id = e.id
+            WHERE e.airstamp > ? AND e.airstamp <= ?
+            ORDER BY e.airstamp {order}
+            LIMIT ?
+            """,
+            (lower, upper, cap),
+        ).fetchall()
+        return [episode_public(row) for row in rows]
+
+    ahead = query(now, end, "ASC", limit) if forward_days > 0 else []
+    # Most recent first, so the cap trims the oldest rather than yesterday's.
+    behind = query(start, now, "DESC", limit) if back_days > 0 else []
+
+    return {
+        "upcoming": ahead,
+        "recent": behind,
+        "unwatched_recent": sum(1 for episode in behind if not episode["watched"]),
+        "back_days": back_days,
+        "forward_days": forward_days,
+        "truncated": len(behind) >= limit,
+    }
+
+
+def upcoming(days: int = 14) -> list[dict]:
+    """Airings still to come, soonest first."""
+    return calendar(back_days=0, forward_days=days)["upcoming"]
 
 
 def new_since(since: str | None, limit: int = 60) -> list[dict]:

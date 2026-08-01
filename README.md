@@ -186,8 +186,16 @@ the show so you can read about it before adding.
 Everything still to come arrives in a single `/schedule/full` call, and only
 the past needs a request per day per schedule, so a sweep is about thirty
 requests. It runs at most twice a day and caches into a table the tab reads
-instantly. If it has not run yet the tab says so rather than claiming there is
-nothing; **Check now** forces a sweep.
+instantly. If that one call fails the sweep falls back to walking the days
+forward as well, so a bad request narrows the horizon instead of emptying it.
+
+The twice-a-day gate is skipped when `SWEEP_GENERATION` in `app/premieres.py`
+changes, so a release that collects more does not serve half a day of data
+gathered under the old rules — bump it whenever you change what a sweep
+gathers. If a sweep has not run yet the tab says so rather than claiming there
+is nothing, **Check now** forces one, and the footer names the furthest date
+TVmaze knows about so a list that stops short is explained rather than
+mysterious.
 
 ## New episode alerts
 

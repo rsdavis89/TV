@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-9';
+const APP_VERSION = '2026.08.02-10';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -116,6 +116,14 @@ function airLabel(stamp) {
   if (days < 0 && days >= -6) return `${-days} days ago`;
   if (days < 0) return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function dayLabel(stamp) {
+  const date = new Date(stamp);
+  const options = { month: 'long', day: 'numeric' };
+  // The schedule can reach years out, and "March 6" alone would read as soon.
+  if (date.getFullYear() !== new Date().getFullYear()) options.year = 'numeric';
+  return date.toLocaleDateString(undefined, options);
 }
 
 function localDay(stamp) {
@@ -474,6 +482,9 @@ async function viewNew() {
       ${premieres.swept_at
         ? `Last checked ${esc(airLabel(premieres.swept_at))}.`
         : 'Not checked yet.'}
+      ${premieres.horizon
+        ? `TVmaze's schedule reaches ${esc(dayLabel(premieres.horizon))}.`
+        : ''}
       <button class="ghost" id="premieres-refresh" style="padding:2px 6px">Check now</button>
     </p>`;
 

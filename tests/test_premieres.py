@@ -151,7 +151,20 @@ def test_sweep_is_rate_limited_between_runs(database):
 
     assert premieres.due_for_sweep() is True
     set_meta("premieres_swept_at", utcnow())
+    set_meta("premieres_sweep_generation", premieres.SWEEP_GENERATION)
     assert premieres.due_for_sweep() is False
+
+
+def test_a_new_sweep_generation_overrides_the_rate_limit(database):
+    """Otherwise a deploy that widens the horizon serves stale, narrower data."""
+    from app.db import set_meta
+
+    set_meta("premieres_swept_at", utcnow())
+    set_meta("premieres_sweep_generation", premieres.SWEEP_GENERATION)
+    assert premieres.due_for_sweep() is False
+
+    set_meta("premieres_sweep_generation", "1")
+    assert premieres.due_for_sweep() is True
 
 
 @pytest.fixture()
@@ -199,17 +212,46 @@ async def test_sweep_survives_the_full_schedule_failing(database, monkeypatch):
         raise RuntimeError("10 MB is a lot to ask for")
 
     async def fake_get(path, params=None, attempts=4):
-        today = premieres.datetime.now(premieres.timezone.utc).date().isoformat()
-        if (params or {}).get("date") != today:
-            return []
-        return [schedule_item(500, 60, "Fresh Thing", 1, 1, stamp(0))]
+        day = (params or {}).get("date")
+        today = premieres.datetime.now(premieres.timezone.utc).date()
+        if day == today.isoformat():
+            return [schedule_item(500, 60, "Fresh Thing", 1, 1, stamp(0))]
+        if day == (today + premieres.timedelta(days=5)).isoformat():
+            return [schedule_item(501, 61, "Later Thing", 1, 1, stamp(5))]
+        return []
 
     monkeypatch.setattr(premieres.tvmaze, "full_schedule", boom)
     monkeypatch.setattr(premieres.tvmaze, "_get", fake_get)
 
-    report = await premieres.sweep(back_days=0)
-    assert report["found"] == 1
+    # The daily walk covers the future too when the big request is unavailable,
+    # so a failure narrows the horizon rather than emptying it.
+    report = await premieres.sweep(back_days=0, ahead_days=7)
+    assert report["found"] == 2
     assert report["failed_requests"] == 1
+    assert report["full_schedule"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_working_full_schedule_skips_the_daily_future_walk(database, monkeypatch):
+    from test_library import stamp
+
+    asked = []
+
+    async def full_schedule():
+        return [schedule_item(600, 70, "Upcoming Thing", 1, 1, stamp(40))]
+
+    async def fake_get(path, params=None, attempts=4):
+        asked.append((params or {}).get("date"))
+        return []
+
+    monkeypatch.setattr(premieres.tvmaze, "full_schedule", full_schedule)
+    monkeypatch.setattr(premieres.tvmaze, "_get", fake_get)
+
+    report = await premieres.sweep(back_days=2)
+    assert report["full_schedule"] is True
+    # Three days back through today, two schedules each, and nothing forward.
+    assert len(asked) == 6
+    assert report["horizon"] == premieres.horizon()
 
 
 @pytest.mark.asyncio

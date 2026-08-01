@@ -68,6 +68,10 @@ WINDOW_BACK_DAYS = 14
 WINDOW_AHEAD_DAYS = 21
 # One sweep is ~30 requests, one of them a 10 MB payload, so do not repeat it often.
 MIN_HOURS_BETWEEN_SWEEPS = 12
+# Bumped whenever a sweep starts collecting something different. Without it a
+# deploy that widens the horizon sits behind the twice-a-day gate for half a
+# day, serving data gathered under the old rules and looking like a bug.
+SWEEP_GENERATION = "2"
 
 
 def _show_of(item: dict) -> dict:
@@ -127,16 +131,22 @@ async def sweep(back_days: int = WINDOW_BACK_DAYS, ahead_days: int | None = None
     rows: dict[int, dict] = {}
     failures = 0
 
+    full = True
     try:
         for item in await tvmaze.full_schedule():
             row = _normalise(item)
             if row:
                 rows[row["episode_id"]] = row
     except Exception:  # a large response with its own ways to fail
-        log.warning("full schedule fetch failed; falling back to daily requests")
+        log.warning("full schedule fetch failed; walking the days instead")
         failures += 1
+        full = False
 
-    for offset in range(-abs(back_days), 1):
+    # If the big request failed there would otherwise be no future at all, so
+    # fall back to the daily walk it replaced: a shorter horizon, not an empty one.
+    ahead = 0 if full else (WINDOW_AHEAD_DAYS if ahead_days is None else ahead_days)
+
+    for offset in range(-abs(back_days), abs(ahead) + 1):
         day = (today + timedelta(days=offset)).isoformat()
         for path, params in (
             ("/schedule/web", {"date": day}),
@@ -167,7 +177,15 @@ async def sweep(back_days: int = WINDOW_BACK_DAYS, ahead_days: int | None = None
 
     removed = prune()
     set_meta("premieres_swept_at", utcnow())
-    report = {"found": len(rows), "removed": removed, "failed_requests": failures, "at": utcnow()}
+    set_meta("premieres_sweep_generation", SWEEP_GENERATION)
+    report = {
+        "found": len(rows),
+        "removed": removed,
+        "failed_requests": failures,
+        "full_schedule": full,
+        "horizon": horizon(),
+        "at": utcnow(),
+    }
     set_meta("premieres_last_report", json.dumps(report))
     log.info("premiere sweep: %s", report)
     return report
@@ -183,7 +201,14 @@ def prune(keep_days: int = 120) -> int:
         return max(cursor.rowcount, 0)
 
 
+def horizon() -> str | None:
+    """The furthest premiere on record, so the app can say how far it can see."""
+    return connect().execute("SELECT MAX(airstamp) AS furthest FROM premiere").fetchone()["furthest"]
+
+
 def due_for_sweep() -> bool:
+    if get_meta("premieres_sweep_generation") != SWEEP_GENERATION:
+        return True
     last = get_meta("premieres_swept_at")
     if not last:
         return True
@@ -233,6 +258,7 @@ def listing(back_days: int = 14, ahead_days: int = 21, include_followed: bool = 
         "groups": SERVICE_GROUPS,
         "swept_at": get_meta("premieres_swept_at"),
         "stored": connect().execute("SELECT COUNT(*) AS n FROM premiere").fetchone()["n"],
+        "horizon": horizon(),
         "window": {"back_days": back_days, "ahead_days": ahead_days},
     }
 

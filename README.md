@@ -258,6 +258,22 @@ tests/         pytest suite
 The front end is deliberately dependency-free — no npm, no bundler, no build
 step. Editing `web/app.js` and reloading is the whole workflow.
 
+## Updating a running install
+
+Your library and the code live in different places, which is what makes updates
+safe. The database is a file in the data directory (a mounted volume when
+hosted); the code is everything else. Deploying replaces the code and leaves
+the directory alone.
+
+At startup the app applies any new schema migrations to the existing database.
+They only ever add tables or columns — nothing drops or rewrites your history —
+and each one is applied once, so restarting repeatedly is harmless. A backup is
+written on startup too, before you touch anything.
+
+The front end is cached by a service worker for offline use, but the app shell
+is fetched network-first, so a deploy shows up the next time you open the app
+rather than a version behind.
+
 ## Development
 
 ```bash

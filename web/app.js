@@ -11,6 +11,7 @@ const state = {
   openSeasons: new Set(),
   searchResults: null,
   searchQuery: '',
+  returnTo: 'home',
   showFilter: { filter: 'active', sort: 'name', q: '' },
   selecting: false,
   selected: new Set(),
@@ -107,22 +108,43 @@ function humanMinutes(minutes) {
 
 /* ------------------------------------------------------------ navigation */
 
-function go(view, showId = null) {
+// Where you were in each list, so coming back from a show does not dump you at
+// the top of a long Up Next again.
+const scrollPositions = new Map();
+
+function viewKey(view = state.view, showId = state.showId) {
+  return view === 'show' ? `show:${showId}` : view;
+}
+
+async function go(view, showId = null) {
+  const leaving = viewKey();
+  scrollPositions.set(leaving, window.scrollY);
+
   if (view !== 'shows') {
     state.selecting = false;
     state.selected = new Set();
   }
+  // Remember where a show was opened from, so Back returns there.
+  if (view === 'show' && state.view !== 'show') state.returnTo = state.view;
+
+  const arriving = viewKey(view, showId);
+  // Tapping the tab you are already on jumps to the top, as tab bars do.
+  const target = arriving === leaving ? 0 : scrollPositions.get(arriving) ?? 0;
+
   state.view = view;
   state.showId = showId;
   titleEl.textContent = TITLES[view] ?? '';
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.view === view);
   });
-  window.scrollTo(0, 0);
-  render();
+  await render(target);
 }
 
-async function render() {
+async function render(scrollTarget = null) {
+  // A re-render in place (marking an episode watched) should not move the page,
+  // so hold the current position unless a navigation asked for a specific one.
+  const keep = scrollTarget === null ? window.scrollY : scrollTarget;
+
   document.querySelectorAll('.bulkbar').forEach((bar) => bar.remove());
   document.body.classList.remove('selecting');
   main.innerHTML = '<div class="empty">Loading…</div>';
@@ -140,6 +162,8 @@ async function render() {
   } catch (error) {
     main.innerHTML = `<div class="empty"><strong>Something went wrong</strong>${esc(error.message)}</div>`;
   }
+  // After layout, or the page may not yet be tall enough to scroll that far.
+  requestAnimationFrame(() => window.scrollTo(0, keep));
 }
 
 /* ------------------------------------------------------------- home view */
@@ -917,7 +941,7 @@ document.addEventListener('click', async (event) => {
 
   if (data.go) return go(data.go);
   if (data.stats) return viewStats();
-  if (data.back) return go('home');
+  if (data.back) return go(state.returnTo || 'home');
   if (data.backSettings) return go('settings');
 
   if (data.open) {

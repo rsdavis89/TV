@@ -199,3 +199,21 @@ def test_storage_warns_when_the_database_is_on_container_disk(monkeypatch, tmp_p
     # A mounted volume outside the app directory is fine.
     monkeypatch.setattr(config_module, "DB_PATH", tmp_path.parent / "volume" / "tv.db")
     assert storage.status()["at_risk"] is False
+
+
+def test_storage_counts_restarts_as_proof_of_persistence(database):
+    """Correct-looking settings can still lose data; a surviving count cannot."""
+    from app import storage
+
+    storage.record_start()
+    first = storage.status()
+    assert first["starts"] == 1
+    assert first["created_at"]
+
+    storage.record_start()
+    storage.record_start()
+    later = storage.status()
+
+    assert later["starts"] == 3
+    # The birthday is stamped once and never moves.
+    assert later["created_at"] == first["created_at"]

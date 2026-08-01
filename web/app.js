@@ -680,10 +680,17 @@ async function viewSettings() {
     <section class="section">
       <div class="section-head"><h2>Backups</h2></div>
       ${status.storage ? `
-        <p class="muted" style="margin:0 2px 10px;font-size:12.5px">
-          Database: <code>${esc(status.storage.database)}</code>
-          ${status.storage.exists ? `· ${Math.max(Math.round(status.storage.size_bytes / 1024), 1)} KB` : '· empty'}
-        </p>` : ''}
+        <div class="report" style="margin:0 0 12px">
+          <div class="kv"><span>Database</span><span><code>${esc(status.storage.database)}</code></span></div>
+          <div class="kv"><span>Size</span><span>${Math.max(Math.round(status.storage.size_bytes / 1024), 1)} KB</span></div>
+          <div class="kv"><span>Created</span><span>${esc(airLabel(status.storage.created_at))}</span></div>
+          <div class="kv"><span>Restarts survived</span><span>${Math.max(status.storage.starts - 1, 0)}</span></div>
+          <p class="muted" style="margin:8px 0 0;font-size:12.5px">
+            ${status.storage.starts > 1
+              ? 'This database has survived a restart, so your data is being kept between deploys.'
+              : 'This database was created on the most recent start. Restart the app once and check that these numbers go up rather than resetting.'}
+          </p>
+        </div>` : ''}
       <p class="muted" style="margin:0 2px 10px">
         ${backups.enabled
           ? `Saved automatically every ${backups.interval_hours} hours, keeping the last ${backups.keep}.

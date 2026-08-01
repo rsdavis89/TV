@@ -22,17 +22,24 @@ OPEN_PATHS = {"/api/auth/status", "/api/auth/login", "/api/auth/logout"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.migrate()
+    storage.record_start()
     tasks = [
         asyncio.create_task(refresh.scheduler()),
         asyncio.create_task(backup.scheduler()),
     ]
     where = storage.status()
     log.info(
-        "TV tracker ready; database at %s (%s, %d bytes)",
+        "TV tracker ready; database at %s (%d bytes, created %s, start #%d)",
         where["database"],
-        "existing" if where["exists"] else "new, empty",
         where["size_bytes"],
+        where["created_at"],
+        where["starts"],
     )
+    if where["starts"] == 1:
+        log.warning(
+            "This database was created just now. If that happens on every "
+            "deploy, storage is not persisting between restarts."
+        )
     if where["warning"]:
         log.warning("STORAGE IS NOT PERSISTENT: %s", where["warning"])
     try:

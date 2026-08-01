@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-10';
+const APP_VERSION = '2026.08.02-11';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -183,7 +183,7 @@ function viewKey(view = state.view, showId = state.showId) {
 
 async function go(view, showId = null, { push = true } = {}) {
   const leaving = viewKey();
-  scrollPositions.set(leaving, window.scrollY);
+  scrollPositions.set(leaving, main.scrollTop);
 
   if (view !== 'shows') {
     state.selecting = false;
@@ -213,17 +213,25 @@ async function go(view, showId = null, { push = true } = {}) {
   await render(target);
 }
 
-// Height of the sticky header, so an anchored scroll does not tuck under it.
-const TOPBAR_OFFSET = 58;
+// A little air above an anchored element, so it does not sit flush at the edge.
+const ANCHOR_GAP = 8;
 
 // A view may set this while rendering to request a specific scroll position,
 // which wins over both the restored position and the caller's request.
 let pendingScroll = null;
 
+// Where an element sits within the scrolling content, which is what scrollTop
+// wants — its rect is measured against the viewport, not against the scroller.
+function offsetWithinMain(element) {
+  return element.getBoundingClientRect().top
+    - main.getBoundingClientRect().top
+    + main.scrollTop;
+}
+
 async function render(scrollTarget = null) {
   // A re-render in place (marking an episode watched) should not move the page,
   // so hold the current position unless a navigation asked for a specific one.
-  const keep = scrollTarget === null ? window.scrollY : scrollTarget;
+  const keep = scrollTarget === null ? main.scrollTop : scrollTarget;
   pendingScroll = null;
 
   document.querySelectorAll('.bulkbar').forEach((bar) => bar.remove());
@@ -244,9 +252,9 @@ async function render(scrollTarget = null) {
   } catch (error) {
     main.innerHTML = `<div class="empty"><strong>Something went wrong</strong>${esc(error.message)}</div>`;
   }
-  // After layout, or the page may not yet be tall enough to scroll that far.
+  // After layout, or the content may not yet be tall enough to scroll that far.
   requestAnimationFrame(() => {
-    window.scrollTo(0, pendingScroll !== null ? pendingScroll : keep);
+    main.scrollTop = pendingScroll !== null ? pendingScroll : keep;
     pendingScroll = null;
   });
 }
@@ -515,9 +523,7 @@ async function viewNew() {
     state.newJump = false;
     const anchor = document.getElementById('premieres-today');
     if (anchor && !data.episodes.length && past.length) {
-      pendingScroll = Math.max(
-        anchor.getBoundingClientRect().top + window.scrollY - TOPBAR_OFFSET, 0
-      );
+      pendingScroll = Math.max(offsetWithinMain(anchor) - ANCHOR_GAP, 0);
     }
   }
 }
@@ -546,7 +552,7 @@ function premiereEmptyState(premieres) {
     return `
       <p class="muted" style="margin:0 2px">
         Still checking for premieres. The first sweep after an update takes a
-        minute or two — pull down to refresh, or use Check now below.
+        minute or two — reopen this tab in a moment, or use Check now below.
       </p>`;
   }
   if (!premieres.stored) {
@@ -695,9 +701,7 @@ async function viewCalendar() {
     state.calendarJump = false;
     const anchor = document.getElementById('calendar-today');
     if (anchor) {
-      pendingScroll = Math.max(
-        anchor.getBoundingClientRect().top + window.scrollY - TOPBAR_OFFSET, 0
-      );
+      pendingScroll = Math.max(offsetWithinMain(anchor) - ANCHOR_GAP, 0);
     }
   }
 }

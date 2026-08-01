@@ -36,6 +36,21 @@ html, body {
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: contain;
+  /* The document itself does not scroll; the content area inside it does. A
+     fixed bar at the bottom of a scrolling document is not actually fixed on
+     iOS — it rides along with rubber-band overscroll and gets covered when
+     Safari slides its toolbar back in. Nothing to ride along with here. */
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* Tracks the viewport as browser chrome comes and goes; the percentage above
+     is the fallback for anything that does not know the unit. */
+  height: 100dvh;
 }
 
 .hidden { display: none !important; }
@@ -45,8 +60,7 @@ html, body {
 /* ---------- chrome ---------- */
 
 .topbar {
-  position: sticky;
-  top: 0;
+  flex: none;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -62,16 +76,23 @@ html, body {
 .topbar-actions { display: flex; gap: 8px; }
 
 main {
-  padding: 14px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 24px);
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  /* Stops an overscroll at either end from becoming the page's problem. */
+  overscroll-behavior-y: contain;
+  padding: 14px 16px 24px;
+  /* A column flex container centres on the cross axis, so auto side margins
+     still hold the reading width even though this is now the scroller. */
   max-width: 900px;
+  width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .tabbar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex: none;
   z-index: 30;
   display: flex;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
@@ -353,7 +374,9 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 }
 
 /* Keep the last card clear of the action bar. */
-body.selecting main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 140px); }
+/* Clearance for the selection bar, which floats above the tab bar. The tab bar
+   itself no longer overlays the content, so it needs no reserve of its own. */
+body.selecting main { padding-bottom: 150px; }
 
 .bulkbar-row {
   display: flex;

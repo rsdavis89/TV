@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-5';
+const APP_VERSION = '2026.08.02-6';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -142,6 +142,22 @@ function humanMinutes(minutes) {
 
 /* ------------------------------------------------------------ navigation */
 
+// The current screen lives in the URL, so a reload comes back to it rather than
+// bouncing to Up Next, and the browser's back gesture moves between screens.
+function hashFor(view, showId) {
+  return view === 'show' ? `#/show/${showId}` : `#/${view}`;
+}
+
+function parseHash() {
+  const raw = (location.hash || '').replace(/^#\/?/, '');
+  if (!raw) return null;
+  const [name, id] = raw.split('/');
+  if (name === 'show') {
+    return Number(id) ? { view: 'show', showId: Number(id) } : null;
+  }
+  return TITLES[name] === undefined ? null : { view: name, showId: null };
+}
+
 // Where you were in each list, so coming back from a show does not dump you at
 // the top of a long Up Next again.
 const scrollPositions = new Map();
@@ -150,7 +166,7 @@ function viewKey(view = state.view, showId = state.showId) {
   return view === 'show' ? `show:${showId}` : view;
 }
 
-async function go(view, showId = null) {
+async function go(view, showId = null, { push = true } = {}) {
   const leaving = viewKey();
   scrollPositions.set(leaving, window.scrollY);
 
@@ -170,6 +186,10 @@ async function go(view, showId = null) {
 
   state.view = view;
   state.showId = showId;
+  const hash = hashFor(view, showId);
+  if (push && location.hash !== hash) {
+    history.pushState({ view, showId }, '', hash);
+  }
   titleEl.textContent = TITLES[view] ?? '';
   document.querySelectorAll('.tab').forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.view === view);
@@ -1378,7 +1398,8 @@ document.getElementById('login-form').addEventListener('submit', async (event) =
       body: JSON.stringify({ password: document.getElementById('password').value }),
     });
     showApp();
-    go('home');
+    const start = parseHash() || { view: 'home', showId: null };
+    go(start.view, start.showId, { push: false });
   } catch (error) {
     errorEl.textContent = 'That password did not work.';
   }
@@ -1391,13 +1412,21 @@ async function boot() {
     return;
   }
   showApp();
-  go('home');
+  const start = parseHash() || { view: 'home', showId: null };
+  // Replace rather than push, so the first entry in history is where we landed.
+  history.replaceState({ ...start }, '', hashFor(start.view, start.showId));
+  go(start.view, start.showId, { push: false });
   pollBadge();
   setInterval(pollBadge, 10 * 60 * 1000);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) pollBadge();
   });
 }
+
+window.addEventListener('popstate', () => {
+  const target = parseHash() || { view: 'home', showId: null };
+  go(target.view, target.showId, { push: false });
+});
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => { /* not fatal */ });

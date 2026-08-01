@@ -23,6 +23,9 @@ you own.
 - **Import** — bring your TV Time export in, with a preview before anything is
   written.
 - Installs to your phone's home screen as a PWA and works offline for browsing.
+- The screen you are on is in the URL, so a reload returns to it, the back
+  gesture moves between screens, and a link to a show can be shared or
+  bookmarked.
 
 Show and episode data comes from [TVmaze](https://www.tvmaze.com/api), which is
 free and needs no API key.

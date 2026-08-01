@@ -219,7 +219,11 @@ many times as you like.
   overrides the port Railway routes to.
 - **Everything vanished after a restart** — the volume is missing, or
   `TV_DATA_DIR` does not match the volume's mount path. Both must be `/data`,
-  with a leading slash. Re-check step 3.
+  with a leading slash. Re-check step 3. Note that setting `TV_DATA_DIR=/data`
+  alone is not enough: with no volume mounted there, `/data` is just an
+  ordinary folder inside the container and is erased on every restart. The app
+  detects this and says so in **More**, but only from version 2026.08.01-8
+  onwards.
 - **Cannot find where to add a volume** — it is not in the service panel, and
   not in Settings. Close the panel, switch Safari to **Request Desktop
   Website**, and press-and-hold on empty canvas. See step 3.

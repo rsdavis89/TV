@@ -6,6 +6,7 @@ route that shadows another, a response shape the front end does not expect.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -184,21 +185,62 @@ def test_status_reports_where_the_database_lives(client):
     assert reported["warning"] is None
 
 
-def test_storage_warns_when_the_database_is_on_container_disk(monkeypatch, tmp_path):
+def test_storage_warns_when_the_database_is_inside_the_app_folder(monkeypatch, tmp_path):
     from app import config as config_module
     from app import storage
 
     monkeypatch.setattr(storage, "in_container", lambda: True)
+    monkeypatch.setattr(storage, "on_root_filesystem", lambda path: True)
     monkeypatch.setattr(config_module, "BASE_DIR", tmp_path)
     monkeypatch.setattr(config_module, "DB_PATH", tmp_path / "data" / "tv.db")
 
     reported = storage.status()
     assert reported["at_risk"] is True
-    assert "erased" in reported["warning"]
+    assert "application folder" in reported["warning"]
 
-    # A mounted volume outside the app directory is fine.
-    monkeypatch.setattr(config_module, "DB_PATH", tmp_path.parent / "volume" / "tv.db")
-    assert storage.status()["at_risk"] is False
+
+def test_storage_warns_when_the_data_dir_is_not_a_mounted_volume(monkeypatch, tmp_path):
+    """The failure that cost a library: TV_DATA_DIR=/data with nothing mounted.
+
+    The path is spelled perfectly and sits outside the app, so only the
+    filesystem check can tell it is an ordinary folder in the image.
+    """
+    from app import config as config_module
+    from app import storage
+
+    monkeypatch.setattr(storage, "in_container", lambda: True)
+    monkeypatch.setattr(storage, "on_root_filesystem", lambda path: True)
+    monkeypatch.setattr(config_module, "BASE_DIR", tmp_path / "app")
+    monkeypatch.setattr(config_module, "DB_PATH", Path("/data/tv.db"))
+
+    reported = storage.status()
+    assert reported["at_risk"] is True
+    assert "no volume is mounted" in reported["warning"]
+    assert "/data" in reported["warning"]
+
+
+def test_storage_is_content_when_the_data_dir_is_a_real_mount(monkeypatch, tmp_path):
+    from app import config as config_module
+    from app import storage
+
+    monkeypatch.setattr(storage, "in_container", lambda: True)
+    monkeypatch.setattr(storage, "on_root_filesystem", lambda path: False)
+    monkeypatch.setattr(config_module, "DB_PATH", Path("/data/tv.db"))
+
+    reported = storage.status()
+    assert reported["at_risk"] is False
+    assert reported["warning"] is None
+
+
+def test_root_filesystem_check_distinguishes_a_real_mount():
+    """A mounted filesystem reports a different device id from /."""
+    import os
+
+    from app import storage
+
+    assert storage.on_root_filesystem(Path("/etc/hostname")) is True
+    if Path("/dev/shm").exists() and os.stat("/dev/shm").st_dev != os.stat("/").st_dev:
+        assert storage.on_root_filesystem(Path("/dev/shm/anything")) is False
 
 
 def test_storage_counts_restarts_as_proof_of_persistence(database):

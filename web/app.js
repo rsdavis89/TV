@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.01-7';
+const APP_VERSION = '2026.08.01-8';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');

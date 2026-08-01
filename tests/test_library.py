@@ -313,3 +313,63 @@ def test_priority_shows_order_started_before_unstarted(database):
     library.set_priority(2, True)
 
     assert [c["show"]["name"] for c in library.home()["priority"]] == ["Started", "Untouched"]
+
+
+def test_bulk_archive_and_unarchive(database):
+    for show_id in (1, 2, 3):
+        seed(database, show_id=show_id, name=f"Show {show_id}",
+             episodes=[make_episode(1000 + show_id, 1, 1, stamp(-5), show_id=show_id)])
+
+    result = library.bulk_update([1, 2], "archive")
+    assert result["changed"] == 2 and result["verb"] == "archived"
+    assert library.followed_ids() == [3]
+
+    library.bulk_update([1], "unarchive")
+    assert sorted(library.followed_ids()) == [1, 3]
+
+
+def test_bulk_unfollow_keeps_watch_history(database):
+    show_id = seed(database)
+    library.mark_watched(101)
+
+    assert library.bulk_update([show_id], "unfollow")["changed"] == 1
+    assert library.followed_ids() == []
+    assert database.execute("SELECT COUNT(*) AS n FROM watch").fetchone()["n"] == 1
+
+
+def test_bulk_flags(database):
+    for show_id in (1, 2):
+        seed(database, show_id=show_id, name=f"Show {show_id}",
+             episodes=[make_episode(1000 + show_id, 1, 1, stamp(-5), show_id=show_id)])
+
+    library.bulk_update([1, 2], "favorite")
+    library.bulk_update([2], "priority")
+
+    assert library.show_card(1)["favorite"] is True
+    assert library.show_card(2)["priority"] is True
+    assert library.show_card(1)["priority"] is False
+
+    library.bulk_update([1, 2], "unfavorite")
+    assert library.show_card(2)["favorite"] is False
+
+
+def test_bulk_rejects_unknown_actions_and_tolerates_empty_input(database):
+    seed(database)
+    import pytest
+
+    with pytest.raises(ValueError):
+        library.bulk_update([1], "delete_everything")
+    assert library.bulk_update([], "archive")["changed"] == 0
+
+
+def test_unstarted_ids_finds_shows_with_nothing_watched(database):
+    seed(database, show_id=1, name="Started")
+    seed(database, show_id=2, name="Untouched",
+         episodes=[make_episode(2001, 1, 1, stamp(-5), show_id=2)])
+    library.mark_watched(101)
+
+    assert library.unstarted_ids() == [2]
+
+    library.set_archived(2, True)
+    assert library.unstarted_ids() == []
+    assert library.unstarted_ids(include_archived=True) == [2]

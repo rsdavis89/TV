@@ -206,6 +206,51 @@ def set_favorite(show_id: int, favorite: bool) -> None:
         )
 
 
+BULK_ACTIONS = {
+    "archive": ("UPDATE follow SET archived = 1 WHERE show_id IN ({marks})", "archived"),
+    "unarchive": ("UPDATE follow SET archived = 0 WHERE show_id IN ({marks})", "unarchived"),
+    "favorite": ("UPDATE follow SET favorite = 1 WHERE show_id IN ({marks})", "favorited"),
+    "unfavorite": ("UPDATE follow SET favorite = 0 WHERE show_id IN ({marks})", "unfavorited"),
+    "priority": ("UPDATE follow SET priority = 1 WHERE show_id IN ({marks})", "pinned"),
+    "unpriority": ("UPDATE follow SET priority = 0 WHERE show_id IN ({marks})", "unpinned"),
+    "unfollow": ("DELETE FROM follow WHERE show_id IN ({marks})", "removed"),
+}
+
+
+def bulk_update(show_ids: list[int], action: str) -> dict:
+    """Apply one action to many shows. Watch history is never touched.
+
+    A library imported from years of TV Time has a long tail of shows to triage,
+    and doing that one show at a time is the difference between a tidy library
+    and giving up.
+    """
+    if action not in BULK_ACTIONS:
+        raise ValueError(f"unknown bulk action: {action}")
+    ids = [int(show_id) for show_id in show_ids]
+    if not ids:
+        return {"action": action, "changed": 0, "verb": BULK_ACTIONS[action][1]}
+
+    statement, verb = BULK_ACTIONS[action]
+    marks = ",".join("?" for _ in ids)
+    with tx() as conn:
+        cursor = conn.execute(statement.format(marks=marks), ids)
+        changed = cursor.rowcount
+    return {"action": action, "changed": max(changed, 0), "verb": verb}
+
+
+def unstarted_ids(include_archived: bool = False) -> list[int]:
+    """Followed shows with nothing watched — the pile worth triaging."""
+    clause = "" if include_archived else " AND f.archived = 0"
+    rows = connect().execute(
+        f"""
+        SELECT f.show_id FROM follow f
+        LEFT JOIN watch w ON w.show_id = f.show_id
+        WHERE w.show_id IS NULL{clause}
+        """
+    ).fetchall()
+    return [row["show_id"] for row in rows]
+
+
 def set_priority(show_id: int, priority: bool) -> None:
     """Priority shows are pinned to the top of Up Next when they have something
     to watch. Favourites are a permanent label; priority is 'get to this next'."""
@@ -628,6 +673,39 @@ def stats() -> dict:
         "following": following,
         "by_month": [dict(row) for row in recent],
         "top_shows": [dict(row) for row in top],
+    }
+
+
+def export_payload() -> dict:
+    """A portable backup: what you follow and every episode you have watched.
+
+    Deliberately keyed by TVmaze and TVDB ids plus season/episode numbers rather
+    than this database's row ids, so a restore can rebuild from scratch.
+    """
+    conn = connect()
+    follows = conn.execute(
+        """
+        SELECT s.id AS tvmaze_id, s.name, s.tvdb_id, s.imdb_id,
+               f.followed_at, f.archived, f.favorite, f.priority
+        FROM follow f JOIN show s ON s.id = f.show_id ORDER BY s.name
+        """
+    ).fetchall()
+    watches = conn.execute(
+        """
+        SELECT s.id AS tvmaze_id, s.name AS show_name, s.tvdb_id,
+               e.season, e.number, e.name AS episode_name, w.watched_at, w.source
+        FROM watch w
+        JOIN episode e ON e.id = w.episode_id
+        JOIN show s ON s.id = w.show_id
+        ORDER BY s.name, e.season, e.number
+        """
+    ).fetchall()
+    return {
+        "format": "tv-tracker-export",
+        "version": 1,
+        "exported_at": now_iso(),
+        "follows": [dict(row) for row in follows],
+        "watches": [dict(row) for row in watches],
     }
 
 

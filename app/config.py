@@ -44,6 +44,13 @@ REFRESH_ON_START = _env_bool("TV_REFRESH_ON_START", True)
 # TVmaze updates feed did not flag it.
 STALE_SHOW_HOURS = _env_int("TV_STALE_SHOW_HOURS", 24 * 7)
 
+# Automatic backups of the watch history. This is the only data in the app that
+# cannot be fetched again from anywhere, so it is on by default.
+BACKUP_ENABLED = _env_bool("TV_BACKUP_ENABLED", True)
+BACKUP_DIR = Path(os.environ.get("TV_BACKUP_DIR") or (DATA_DIR / "backups"))
+BACKUP_INTERVAL_HOURS = _env_int("TV_BACKUP_INTERVAL_HOURS", 24)
+BACKUP_KEEP = _env_int("TV_BACKUP_KEEP", 14)
+
 TVMAZE_BASE = os.environ.get("TV_TVMAZE_BASE", "https://api.tvmaze.com")
 # TVmaze asks for at most 20 calls per 10 seconds. Stay under it.
 TVMAZE_RATE = _env_int("TV_TVMAZE_RATE", 18)

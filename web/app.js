@@ -12,6 +12,8 @@ const state = {
   searchResults: null,
   searchQuery: '',
   showFilter: { filter: 'active', sort: 'name', q: '' },
+  selecting: false,
+  selected: new Set(),
 };
 
 const TITLES = {
@@ -106,6 +108,10 @@ function humanMinutes(minutes) {
 /* ------------------------------------------------------------ navigation */
 
 function go(view, showId = null) {
+  if (view !== 'shows') {
+    state.selecting = false;
+    state.selected = new Set();
+  }
   state.view = view;
   state.showId = showId;
   titleEl.textContent = TITLES[view] ?? '';
@@ -117,6 +123,8 @@ function go(view, showId = null) {
 }
 
 async function render() {
+  document.querySelectorAll('.bulkbar').forEach((bar) => bar.remove());
+  document.body.classList.remove('selecting');
   main.innerHTML = '<div class="empty">Loading…</div>';
   try {
     const views = {
@@ -168,6 +176,20 @@ function showCard(card, options = {}) {
   const pin = card.priority && !options.inPriority
     ? '<span class="pill prio">Priority</span> '
     : '';
+
+  if (options.selectable) {
+    const on = state.selected.has(show.id);
+    return `
+      <div class="card selectable ${on ? 'picked' : ''}" data-pick="${show.id}">
+        <button class="check ${on ? 'on' : ''}" tabindex="-1">&#10003;</button>
+        ${poster(show.image, 'poster', show.name)}
+        <div class="card-body">
+          <div class="card-title">${star}${esc(show.name)} ${pin}</div>
+          <div class="card-line muted">${progress.watched}/${progress.total} watched${card.archived ? ' · archived' : ''}</div>
+          <div class="progress"><i style="width:${progress.percent}%"></i></div>
+        </div>
+      </div>`;
+  }
 
   return `
     <div class="card" data-show="${show.id}">
@@ -306,13 +328,26 @@ const SHOW_FILTERS = {
   active: 'Following',
   favorites: 'Favorites',
   priority: 'Priority watch',
+  unstarted: 'Never started',
   archived: 'Archived',
+};
+
+const EMPTY_MESSAGES = {
+  favorites: 'No favorites yet. Open a show and tap ☆ Favorite.',
+  priority: 'Nothing marked priority. Open a show and tap ○ Priority to pin it to the top of Up Next.',
+  unstarted: 'You have watched something from every show you follow.',
+  archived: 'Nothing archived.',
+  active: 'No shows here yet.',
 };
 
 async function viewShows() {
   const { filter, sort, q } = state.showFilter;
   const params = new URLSearchParams({ filter, sort, q });
   const cards = await api(`/shows?${params}`);
+  const visible = cards.map((card) => card.show.id);
+
+  // Selection only ever refers to what is on screen.
+  state.selected = new Set([...state.selected].filter((id) => visible.includes(id)));
 
   main.innerHTML = `
     <div class="field">
@@ -330,14 +365,16 @@ async function viewShows() {
         <option value="progress" ${sort === 'progress' ? 'selected' : ''}>Furthest along</option>
       </select>
     </div>
+    ${cards.length ? `
+      <div class="list-head">
+        <span class="muted">${cards.length} show${cards.length === 1 ? '' : 's'}</span>
+        <button class="ghost" id="select-toggle">${state.selecting ? 'Done' : 'Select'}</button>
+      </div>` : ''}
     ${cards.length
-      ? `<p class="muted" style="margin:0 2px 12px">${cards.length} show${cards.length === 1 ? '' : 's'}</p>
-         ${cards.map((card) => showCard(card)).join('')}`
-      : `<div class="empty">${filter === 'favorites'
-            ? 'No favorites yet. Open a show and tap ☆ Favorite.'
-            : filter === 'priority'
-              ? 'Nothing marked priority. Open a show and tap ○ Priority to pin it to the top of Up Next.'
-              : `No ${esc(SHOW_FILTERS[filter].toLowerCase())} shows here.`}</div>`}`;
+      ? cards.map((card) => showCard(card, { selectable: state.selecting })).join('')
+      : `<div class="empty">${esc(EMPTY_MESSAGES[filter] || 'Nothing here.')}</div>`}`;
+
+  if (state.selecting) renderBulkBar(visible);
 
   const search = document.getElementById('show-search');
   search.addEventListener('change', () => {
@@ -346,12 +383,77 @@ async function viewShows() {
   });
   document.getElementById('show-which').addEventListener('change', (event) => {
     state.showFilter.filter = event.target.value;
+    state.selected = new Set();
     render();
   });
   document.getElementById('show-sort').addEventListener('change', (event) => {
     state.showFilter.sort = event.target.value;
     render();
   });
+  const selectToggle = document.getElementById('select-toggle');
+  if (selectToggle) {
+    selectToggle.addEventListener('click', () => {
+      state.selecting = !state.selecting;
+      state.selected = new Set();
+      render();
+    });
+  }
+}
+
+const BULK_ACTIONS = [
+  { action: 'archive', label: 'Archive', filters: ['active', 'favorites', 'priority', 'unstarted'] },
+  { action: 'unarchive', label: 'Unarchive', filters: ['archived'] },
+  { action: 'favorite', label: '★ Favorite', filters: ['active', 'unstarted', 'archived'] },
+  { action: 'unfavorite', label: 'Unfavorite', filters: ['favorites'] },
+  { action: 'priority', label: '● Priority', filters: ['active', 'favorites', 'unstarted'] },
+  { action: 'unpriority', label: 'Unpin', filters: ['priority'] },
+  { action: 'unfollow', label: 'Remove', filters: ['active', 'favorites', 'priority', 'unstarted', 'archived'] },
+];
+
+function renderBulkBar(visible) {
+  const count = state.selected.size;
+  const filter = state.showFilter.filter;
+  const bar = document.createElement('div');
+  bar.className = 'bulkbar';
+  bar.innerHTML = `
+    <div class="bulkbar-row">
+      <button class="ghost" id="select-all">
+        ${count === visible.length ? 'Select none' : `Select all ${visible.length}`}
+      </button>
+      <span class="muted">${count} selected</span>
+    </div>
+    <div class="bulkbar-row actions">
+      ${BULK_ACTIONS.filter((item) => item.filters.includes(filter)).map((item) => `
+        <button class="secondary" data-bulk="${item.action}" ${count ? '' : 'disabled'}>${item.label}</button>`).join('')}
+    </div>`;
+  document.body.appendChild(bar);
+  document.body.classList.add('selecting');
+
+  document.getElementById('select-all').addEventListener('click', () => {
+    state.selected = count === visible.length ? new Set() : new Set(visible);
+    render();
+  });
+}
+
+async function runBulk(action) {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  const label = BULK_ACTIONS.find((item) => item.action === action)?.label || action;
+  if (action === 'unfollow'
+      && !confirm(`Remove ${ids.length} show${ids.length === 1 ? '' : 's'} from your library? Your watch history is kept.`)) {
+    return;
+  }
+  try {
+    const result = await api('/shows/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ show_ids: ids, action }),
+    });
+    toast(`${result.changed} show${result.changed === 1 ? '' : 's'} ${result.verb}`);
+    state.selected = new Set();
+    await render();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 /* ----------------------------------------------------------- search view */
@@ -488,7 +590,9 @@ function renderEpisode(showId, episode) {
 /* --------------------------------------------------------- settings view */
 
 async function viewSettings() {
-  const [status, imports] = await Promise.all([api('/status'), api('/imports?limit=5')]);
+  const [status, imports, backups] = await Promise.all([
+    api('/status'), api('/imports?limit=5'), api('/backups'),
+  ]);
   const last = status.last_refresh || {};
 
   main.innerHTML = `
@@ -538,17 +642,52 @@ async function viewSettings() {
     </section>
 
     <section class="section">
-      <div class="section-head"><h2>Backup</h2></div>
+      <div class="section-head"><h2>Backups</h2></div>
       <p class="muted" style="margin:0 2px 10px">
-        Downloads everything you follow and every episode you have watched as JSON.
+        ${backups.enabled
+          ? `Saved automatically every ${backups.interval_hours} hours, keeping the last ${backups.keep}.
+             ${backups.last_backup_at
+               ? `Last backup ${esc(airLabel(backups.last_backup_at))}.`
+               : 'No backup written yet.'}`
+          : 'Automatic backups are switched off.'}
+        Your watch history is the one thing here that cannot be fetched again.
       </p>
-      <button class="secondary" id="export-btn">Download backup</button>
+      <div class="card-actions" style="margin-bottom:12px">
+        <button class="primary" id="backup-now">Back up now</button>
+        <button class="secondary" id="export-btn">Download a copy</button>
+      </div>
+      ${backups.files.length ? `
+        <div class="list">
+          ${backups.files.slice(0, 8).map((file) => `
+            <div class="row">
+              <div class="row-body">
+                <div class="row-title">${esc(airLabel(file.modified))}</div>
+                <div class="row-sub">${Math.round(file.bytes / 1024)} KB · ${esc(file.name)}</div>
+              </div>
+              <a class="ghost" href="/api/backups/${encodeURIComponent(file.name)}" download>Download</a>
+            </div>`).join('')}
+        </div>
+        <p class="muted" style="margin:8px 2px 0;font-size:12.5px">
+          Stored in ${esc(backups.directory)} on the server. Download one now and then
+          so a copy lives somewhere else too.
+        </p>` : ''}
     </section>`;
 
   document.getElementById('refresh-now').addEventListener('click', runRefresh);
   document.getElementById('import-preview').addEventListener('click', () => runImport(true));
   document.getElementById('import-commit').addEventListener('click', () => runImport(false));
   document.getElementById('export-btn').addEventListener('click', downloadBackup);
+  document.getElementById('backup-now').addEventListener('click', async (event) => {
+    event.target.disabled = true;
+    try {
+      const result = await api('/backups?force=true', { method: 'POST' });
+      toast(result.written ? `Saved ${result.watches} watched episodes` : result.reason);
+      await render();
+    } catch (error) {
+      toast(error.message);
+      event.target.disabled = false;
+    }
+  });
 }
 
 async function runImport(dryRun) {
@@ -722,10 +861,19 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-backup-now], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
+
+  if (data.pick) {
+    const id = Number(data.pick);
+    if (state.selected.has(id)) state.selected.delete(id);
+    else state.selected.add(id);
+    return render();
+  }
+
+  if (data.bulk) return runBulk(data.bulk);
 
   if (data.go) return go(data.go);
   if (data.stats) return viewStats();

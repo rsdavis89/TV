@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import auth, config, jobs, library, refresh, tvmaze
+from . import auth, backup, config, jobs, library, refresh, tvmaze
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
@@ -35,6 +37,11 @@ class FlagBody(BaseModel):
 class ThroughBody(BaseModel):
     episode_id: int
     include_specials: bool = False
+
+
+class BulkBody(BaseModel):
+    show_ids: list[int]
+    action: str
 
 
 # --------------------------------------------------------------------------
@@ -85,7 +92,7 @@ def get_home() -> dict:
 
 @router.get("/shows")
 def list_shows(
-    filter: str = Query("active", pattern="^(active|favorites|priority|archived)$"),
+    filter: str = Query("active", pattern="^(active|favorites|priority|unstarted|archived)$"),
     q: str = Query(""),
     sort: str = Query("name"),
 ) -> list[dict]:
@@ -98,6 +105,8 @@ def list_shows(
         cards = [card for card in cards if card["favorite"]]
     elif filter == "priority":
         cards = [card for card in cards if card["priority"]]
+    elif filter == "unstarted":
+        cards = [card for card in cards if not card["archived"] and not card["started"]]
     else:
         cards = [card for card in cards if not card["archived"]]
 
@@ -156,6 +165,15 @@ def favorite_show(show_id: int, body: FlagBody) -> dict:
 def priority_show(show_id: int, body: FlagBody) -> dict:
     library.set_priority(show_id, body.value)
     return {"ok": True, "priority": body.value, "card": library.show_card(show_id)}
+
+
+@router.post("/shows/bulk")
+def bulk_shows(body: BulkBody) -> dict:
+    try:
+        result = library.bulk_update(body.show_ids, body.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
 
 
 @router.post("/shows/{show_id}/refresh")
@@ -263,6 +281,7 @@ def get_status() -> dict:
         "last_refresh": refresh.last_refresh(),
         "refresh_interval_hours": config.REFRESH_INTERVAL_HOURS,
         "auth_required": auth.enabled(),
+        "backup": backup.status(),
     }
 
 
@@ -322,31 +341,28 @@ def import_history(limit: int = Query(10, ge=1, le=50)) -> list[dict]:
 @router.get("/export")
 def export_library() -> dict:
     """A portable backup: which shows you follow and every episode you watched."""
-    conn = connect()
-    follows = conn.execute(
-        """
-        SELECT s.id AS tvmaze_id, s.name, s.tvdb_id, s.imdb_id,
-               f.followed_at, f.archived, f.favorite
-        FROM follow f JOIN show s ON s.id = f.show_id ORDER BY s.name
-        """
-    ).fetchall()
-    watches = conn.execute(
-        """
-        SELECT s.id AS tvmaze_id, s.name AS show_name, s.tvdb_id,
-               e.season, e.number, e.name AS episode_name, w.watched_at, w.source
-        FROM watch w
-        JOIN episode e ON e.id = w.episode_id
-        JOIN show s ON s.id = w.show_id
-        ORDER BY s.name, e.season, e.number
-        """
-    ).fetchall()
-    return {
-        "format": "tv-tracker-export",
-        "version": 1,
-        "exported_at": utcnow(),
-        "follows": [dict(row) for row in follows],
-        "watches": [dict(row) for row in watches],
-    }
+    return library.export_payload()
+
+
+@router.get("/backups")
+def backup_status() -> dict:
+    return {**backup.status(), "files": backup.list_backups()}
+
+
+@router.post("/backups")
+async def run_backup(force: bool = Query(False)) -> dict:
+    return await asyncio.to_thread(backup.write_backup, force)
+
+
+@router.get("/backups/{name}")
+def download_backup(name: str) -> FileResponse:
+    """Serve one snapshot. The name is matched against the listing, never joined
+    onto a path, so it cannot escape the backup directory."""
+    if name not in {item["name"] for item in backup.list_backups()}:
+        raise HTTPException(status_code=404, detail="No such backup")
+    return FileResponse(
+        config.BACKUP_DIR / name, media_type="application/json", filename=name
+    )
 
 
 @router.post("/restore")

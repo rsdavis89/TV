@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, db, refresh, tvmaze
+from . import auth, backup, config, db, refresh, tvmaze
 from .api import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -22,16 +22,21 @@ OPEN_PATHS = {"/api/auth/status", "/api/auth/login", "/api/auth/logout"}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.migrate()
-    task = asyncio.create_task(refresh.scheduler())
+    tasks = [
+        asyncio.create_task(refresh.scheduler()),
+        asyncio.create_task(backup.scheduler()),
+    ]
     log.info("TV tracker ready; database at %s", config.DB_PATH)
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await tvmaze.close()
 
 

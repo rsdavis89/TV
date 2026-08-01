@@ -21,6 +21,9 @@ you own.
 Show and episode data comes from [TVmaze](https://www.tvmaze.com/api), which is
 free and needs no API key.
 
+**Just want it on your phone?** See [DEPLOY.md](DEPLOY.md) — a step-by-step
+guide that needs nothing but a browser.
+
 ## Quick start
 
 ```bash
@@ -139,8 +142,9 @@ love", priority answers "what am I watching this week". A priority show you are
 caught up on drops back to its normal group rather than sitting at the top with
 nothing to click, so the section only ever holds things you can act on.
 
-The Shows tab filters by Following, Favorites, Priority watch or Archived.
-Favorites also import from TV Time, which stored an `is_favorited` flag.
+The Shows tab filters by Following, Favorites, Priority watch, Never started
+or Archived. Favorites also import from TV Time, which stored an
+`is_favorited` flag.
 
 ## New episode alerts
 
@@ -184,9 +188,43 @@ python -m app.cli import <path>        # see above
 
 ## Backups
 
-**More → Download backup** writes a JSON file with every show you follow and
-every episode you have watched. `POST /api/restore` reads it back. Or just copy
-`data/tv.db` — that is the whole library.
+Your watch history is the only thing here that cannot be fetched again — show
+and episode data comes back from TVmaze any time, but "I watched this" does
+not, and TV Time is gone. So the app backs itself up rather than relying on
+you remembering.
+
+A dated JSON snapshot is written to `data/backups/` every 24 hours, keeping the
+last 14. A snapshot whose contents match the previous one is skipped, so a
+quiet fortnight cannot push your real history out of the retention window.
+Writes go to a temporary file and are renamed into place, so an interrupted
+backup cannot leave a corrupt file that looks valid.
+
+**More → Backups** lists them, downloads any one, and has a "Back up now"
+button. Download one to your phone or computer occasionally: a backup on the
+same disk as the database only protects you from mistakes, not from losing the
+disk.
+
+Restoring: `POST /api/restore` with a snapshot rebuilds the library from
+scratch, re-fetching each show from TVmaze. Or just copy `data/tv.db` — that is
+the whole library in one file.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TV_BACKUP_ENABLED` | `true` | Turn automatic backups off |
+| `TV_BACKUP_DIR` | `$TV_DATA_DIR/backups` | Where snapshots go |
+| `TV_BACKUP_INTERVAL_HOURS` | `24` | How often to snapshot |
+| `TV_BACKUP_KEEP` | `14` | How many to keep |
+
+## Tidying a big library
+
+An import from years of TV Time brings a long tail of shows you followed once
+and never watched. On the **Shows** tab, set the filter to **Never started**,
+tap **Select**, then **Select all**, then **Archive** — the whole tail is out
+of your way in one go. The same selection mode does favourites, priority,
+unarchiving and removing.
+
+Removing a show never touches your watch history; it stays in your stats and
+comes back if you add the show again.
 
 ## Layout
 

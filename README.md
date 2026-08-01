@@ -204,9 +204,21 @@ button. Download one to your phone or computer occasionally: a backup on the
 same disk as the database only protects you from mistakes, not from losing the
 disk.
 
-Restoring: `POST /api/restore` with a snapshot rebuilds the library from
-scratch, re-fetching each show from TVmaze. Or just copy `data/tv.db` — that is
-the whole library in one file.
+### Moving to another machine
+
+Nothing here is tied to where it runs, and a backup is the migration format.
+On the new machine, start the app, then **More → Backups → "Moving to another
+machine?" → Restore from file** and pick your newest snapshot. It rebuilds
+everything: shows, watch dates, favorites, priority pins and archived state.
+
+It works because a snapshot names each show by its TVmaze and TVDB id and each
+episode by season and number, never by a row id from the database it came out
+of. Restoring re-fetches the show data from TVmaze and re-attaches your history
+to it. Existing entries are left alone, so restoring twice changes nothing.
+
+Copying `data/tv.db` works too and is instant — that single file is the whole
+library — but it needs filesystem access to both machines, which a hosted
+setup may not give you. The backup file only needs a browser.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

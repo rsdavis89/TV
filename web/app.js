@@ -656,6 +656,19 @@ async function viewSettings() {
         <button class="primary" id="backup-now">Back up now</button>
         <button class="secondary" id="export-btn">Download a copy</button>
       </div>
+      <details style="margin-bottom:12px">
+        <summary class="muted" style="cursor:pointer;font-size:13.5px">
+          Moving to another machine? Restore a backup here
+        </summary>
+        <p class="muted" style="margin:10px 0">
+          Pick a backup file to rebuild this library from it — shows, watch dates,
+          favorites, priority and archived state. Existing entries are left alone,
+          so restoring twice is harmless.
+        </p>
+        <div class="field"><input type="file" id="restore-file" accept=".json"></div>
+        <button class="secondary" id="restore-btn">Restore from file</button>
+        <div id="restore-report"></div>
+      </details>
       ${backups.files.length ? `
         <div class="list">
           ${backups.files.slice(0, 8).map((file) => `
@@ -677,6 +690,7 @@ async function viewSettings() {
   document.getElementById('import-preview').addEventListener('click', () => runImport(true));
   document.getElementById('import-commit').addEventListener('click', () => runImport(false));
   document.getElementById('export-btn').addEventListener('click', downloadBackup);
+  document.getElementById('restore-btn').addEventListener('click', runRestore);
   document.getElementById('backup-now').addEventListener('click', async (event) => {
     event.target.disabled = true;
     try {
@@ -770,6 +784,32 @@ function renderImportReport(report) {
       ${list('Episodes with no TVmaze counterpart', report.episodes_unmatched_sample)}
       ${list('Specials TV Time filed without a number', report.specials_skipped_sample)}
     </div>`;
+}
+
+async function runRestore() {
+  const input = document.getElementById('restore-file');
+  const target = document.getElementById('restore-report');
+  if (!input.files.length) {
+    toast('Choose a backup file first');
+    return;
+  }
+  target.innerHTML = '<div class="report">Reading the file…</div>';
+  let payload;
+  try {
+    payload = JSON.parse(await input.files[0].text());
+  } catch (_) {
+    target.innerHTML = '<div class="report">That file is not readable JSON.</div>';
+    return;
+  }
+  try {
+    const { job_id: jobId } = await api('/restore', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    await pollImport(jobId, target, false);
+  } catch (error) {
+    target.innerHTML = `<div class="report">${esc(error.message)}</div>`;
+  }
 }
 
 async function downloadBackup() {

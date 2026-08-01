@@ -122,6 +122,20 @@ tap **Select** → **Select all** → **Archive**. That clears the shows you
 followed years ago and never watched out of your Up Next list without deleting
 anything.
 
+## Moving off the cloud later
+
+If you get a computer, a NAS or a Raspberry Pi later, nothing here traps you:
+
+1. On the new machine, run the app (`docker compose up -d`, or the systemd
+   unit in `deploy/`).
+2. On the old one, **More → Backups** → **Download** the newest snapshot.
+3. On the new one, **More → Backups** → **Restore from file** → pick it.
+
+You get the same library: every show, every watch date, your favorites,
+priority pins and archived shows. Then cancel the cloud subscription. The
+backup file is the migration format, so this works in either direction and as
+many times as you like.
+
 ## If something goes wrong
 
 - **"Application failed to respond"** right after deploying — the build is

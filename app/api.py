@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Respon
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import auth, backup, config, jobs, library, refresh, tvmaze
+from . import auth, backup, config, importer, jobs, library, refresh, tvmaze
 from .db import connect, get_meta, tx, utcnow
 
 router = APIRouter(prefix="/api")
@@ -367,46 +367,21 @@ def download_backup(name: str) -> FileResponse:
 
 @router.post("/restore")
 async def restore_library(payload: dict) -> dict:
-    """Load a backup produced by /api/export back into an empty (or partial) library."""
-    if payload.get("format") != "tv-tracker-export":
-        raise HTTPException(status_code=400, detail="Not a tv-tracker export file")
+    # Must be async: starting the job needs the running event loop, which a
+    # threadpool-dispatched sync endpoint does not have.
+    """Rebuild the library from a backup. Runs as a job; poll /api/import/{id}.
 
-    wanted = {int(item["tvmaze_id"]) for item in payload.get("follows", []) if item.get("tvmaze_id")}
-    wanted |= {int(item["tvmaze_id"]) for item in payload.get("watches", []) if item.get("tvmaze_id")}
+    A backup names every show by its TVmaze id, so this is just an import that
+    needs no matching — the slow part is re-fetching episode lists.
+    """
+    if payload.get("format") != importer.OWN_FORMAT:
+        raise HTTPException(status_code=400, detail="Not a tv-tracker backup file")
 
-    synced, failed = 0, []
-    for show_id in sorted(wanted):
-        try:
-            await library.sync_show(show_id)
-            synced += 1
-        except tvmaze.TVmazeError:
-            failed.append(show_id)
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as handle:
+        json.dump(payload, handle)
+        temp_path = Path(handle.name)
 
-    with tx() as conn:
-        conn.executemany(
-            "INSERT INTO follow (show_id, followed_at, archived, favorite) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(show_id) DO NOTHING",
-            [
-                (
-                    int(item["tvmaze_id"]),
-                    item.get("followed_at") or utcnow(),
-                    int(item.get("archived") or 0),
-                    int(item.get("favorite") or 0),
-                )
-                for item in payload.get("follows", [])
-                if item.get("tvmaze_id") and int(item["tvmaze_id"]) not in failed
-            ],
-        )
-
-    marked = 0
-    for item in payload.get("watches", []):
-        row = connect().execute(
-            "SELECT id FROM episode WHERE show_id = ? AND season = ? AND number = ?",
-            (item.get("tvmaze_id"), item.get("season"), item.get("number")),
-        ).fetchone()
-        if row is None:
-            continue
-        library.mark_watched(row["id"], item.get("watched_at"), source="restore")
-        marked += 1
-
-    return {"shows_synced": synced, "shows_failed": failed, "episodes_marked": marked}
+    job_id = jobs.start_import(
+        temp_path, filename="restore.json", dry_run=False, follow_shows=True
+    )
+    return {"job_id": job_id}

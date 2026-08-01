@@ -248,9 +248,12 @@ def detect_columns(headers: Sequence[str]) -> ColumnMap:
 class ShowKey:
     tvdb_id: int | None
     name: str | None
+    tvmaze_id: int | None = None
 
     def identity(self) -> tuple[str, Any]:
-        """Two rows describe the same show if their TVDB id, or title, agree."""
+        """Two rows describe the same show if their ids, or titles, agree."""
+        if self.tvmaze_id:
+            return ("tvmaze", self.tvmaze_id)
         if self.tvdb_id:
             return ("tvdb", self.tvdb_id)
         return ("name", normalize_title(self.name or ""))
@@ -260,7 +263,9 @@ class ShowKey:
             return f"{self.name} (tvdb {self.tvdb_id})"
         if self.name:
             return self.name
-        return f"tvdb {self.tvdb_id}"
+        if self.tvdb_id:
+            return f"tvdb {self.tvdb_id}"
+        return f"tvmaze {self.tvmaze_id}"
 
 
 @dataclass
@@ -269,13 +274,15 @@ class ShowRecord:
     followed: bool | None = None
     archived: bool | None = None
     favorite: bool | None = None
+    priority: bool | None = None
 
     def learn(self, key: ShowKey, **flags: bool | None) -> None:
         """Fill in anything we do not know yet. Earlier sources win."""
-        if self.key.tvdb_id is None and key.tvdb_id is not None:
-            self.key = ShowKey(key.tvdb_id, self.key.name or key.name)
-        if not self.key.name and key.name:
-            self.key = ShowKey(self.key.tvdb_id, key.name)
+        self.key = ShowKey(
+            tvdb_id=self.key.tvdb_id or key.tvdb_id,
+            name=self.key.name or key.name,
+            tvmaze_id=self.key.tvmaze_id or key.tvmaze_id,
+        )
         for field_name, value in flags.items():
             if value is not None and getattr(self, field_name) is None:
                 setattr(self, field_name, value)
@@ -644,6 +651,80 @@ def parse_generic(tables: dict[str, list[dict]]) -> ParsedSource:
     return parsed
 
 
+# --------------------------------------------------------------------------
+# our own backup files
+# --------------------------------------------------------------------------
+
+OWN_FORMAT = "tv-tracker-export"
+
+
+def read_own_export(source: Path) -> dict | None:
+    """Recognise a backup this app wrote, so restoring is just an import."""
+    if source.is_dir() or source.suffix.lower() != ".json":
+        return None
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if isinstance(payload, dict) and payload.get("format") == OWN_FORMAT:
+        return payload
+    return None
+
+
+def parse_own_export(payload: dict) -> ParsedSource:
+    """Rebuild from a backup. Shows carry their TVmaze id, so no lookups."""
+    parsed = ParsedSource(format="TV Tracker backup")
+
+    for item in payload.get("follows", []):
+        if not item.get("tvmaze_id"):
+            continue
+        key = ShowKey(
+            tvdb_id=parse_int(item.get("tvdb_id")),
+            name=item.get("name"),
+            tvmaze_id=int(item["tvmaze_id"]),
+        )
+        parsed.record(
+            key,
+            followed=True,
+            archived=bool(item.get("archived")),
+            favorite=bool(item.get("favorite")),
+            priority=bool(item.get("priority")),
+        )
+
+    for item in payload.get("watches", []):
+        if not item.get("tvmaze_id"):
+            continue
+        season = parse_int(item.get("season"))
+        number = parse_int(item.get("number"))
+        if season is None or number is None:
+            continue
+        key = ShowKey(
+            tvdb_id=parse_int(item.get("tvdb_id")),
+            name=item.get("show_name"),
+            tvmaze_id=int(item["tvmaze_id"]),
+        )
+        record = parsed.record(key)
+        parsed.watches.append(
+            WatchRecord(
+                identity=record.key.identity(),
+                season=season,
+                number=number,
+                watched_at=parse_timestamp(item.get("watched_at")),
+            )
+        )
+
+    parsed.files.append(
+        {
+            "file": f"backup from {payload.get('exported_at', 'an unknown date')}",
+            "rows": len(payload.get("follows", [])) + len(payload.get("watches", [])),
+            "used": (
+                f"{len(parsed.shows)} shows, {len(parsed.watches)} watched episodes"
+            ),
+        }
+    )
+    return parsed
+
+
 def merge_name_only_shows(parsed: ParsedSource) -> int:
     """Fold title-keyed rows into the same show's TVDB-keyed entry.
 
@@ -679,6 +760,10 @@ def merge_name_only_shows(parsed: ParsedSource) -> int:
 
 
 def parse_source(source: Path) -> ParsedSource:
+    own = read_own_export(source)
+    if own is not None:
+        return parse_own_export(own)
+
     tables = load_tables(source)
     parsed = parse_tvtime(tables) if looks_like_tvtime(tables) else parse_generic(tables)
     merged = merge_name_only_shows(parsed)
@@ -700,6 +785,10 @@ def parse_source(source: Path) -> ParsedSource:
 
 async def resolve_show(key: ShowKey) -> tuple[int | None, str]:
     """Return (tvmaze show id, how we found it)."""
+    if key.tvmaze_id:
+        # Our own backups already name the show by TVmaze id; nothing to look up.
+        return key.tvmaze_id, "tvmaze id"
+
     if key.tvdb_id:
         row = connect().execute(
             "SELECT id FROM show WHERE tvdb_id = ?", (key.tvdb_id,)
@@ -863,9 +952,12 @@ async def run_import(
             wanted = identity in watched_identities
         if not wanted:
             continue
+        # None means "this source says nothing", which must not overwrite a flag
+        # you set by hand. Only explicit values are applied.
         follows[show_id] = {
-            "archived": bool(record.archived),
-            "favorite": bool(record.favorite),
+            "archived": record.archived,
+            "favorite": record.favorite,
+            "priority": record.priority,
         }
 
     if not dry_run:
@@ -879,14 +971,24 @@ async def run_import(
             if follow_shows:
                 stamp = utcnow()
                 conn.executemany(
-                    "INSERT INTO follow (show_id, followed_at, archived, favorite) "
-                    "VALUES (?, ?, ?, ?) ON CONFLICT(show_id) DO UPDATE SET "
-                    "archived = excluded.archived, favorite = excluded.favorite",
-                    [
-                        (show_id, stamp, int(flags["archived"]), int(flags["favorite"]))
-                        for show_id, flags in follows.items()
-                    ],
+                    "INSERT INTO follow (show_id, followed_at) VALUES (?, ?) "
+                    "ON CONFLICT(show_id) DO NOTHING",
+                    [(show_id, stamp) for show_id in follows],
                 )
+                for column in ("archived", "favorite", "priority"):
+                    for value in (True, False):
+                        ids = [
+                            show_id
+                            for show_id, flags in follows.items()
+                            if flags[column] is value
+                        ]
+                        if not ids:
+                            continue
+                        marks = ",".join("?" for _ in ids)
+                        conn.execute(
+                            f"UPDATE follow SET {column} = ? WHERE show_id IN ({marks})",
+                            [int(value), *ids],
+                        )
 
     report = {
         "dry_run": dry_run,

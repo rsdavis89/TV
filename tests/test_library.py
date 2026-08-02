@@ -465,3 +465,89 @@ def test_forget_unused_shows_clears_only_browsing_residue(database):
 def test_forget_unused_shows_is_a_no_op_on_a_tidy_library(database):
     seed(database)
     assert library.forget_unused_shows() == 0
+
+
+# --------------------------------------------------------------------------
+# cast
+# --------------------------------------------------------------------------
+
+
+def cast_entry(person_id, name, character, image="http://x/p.jpg", **flags):
+    return {
+        "person": {"id": person_id, "name": name, "image": {"medium": image}},
+        "character": {"id": person_id * 10, "name": character},
+        **flags,
+    }
+
+
+def test_top_billing_keeps_only_what_the_page_shows():
+    [member] = library.top_billing([cast_entry(1, "Ada", "Captain")])
+    assert member == {
+        "person_id": 1,
+        "name": "Ada",
+        "characters": ["Captain"],
+        "image": "http://x/p.jpg",
+        "self": False,
+        "voice": False,
+    }
+
+
+def test_an_actor_with_two_roles_appears_once():
+    """TVmaze lists a role per entry, which would spend two slots on one face."""
+    billing = library.top_billing([
+        cast_entry(1, "Ada", "Captain"),
+        cast_entry(1, "Ada", "The Twin"),
+        cast_entry(2, "Bo", "Cook"),
+    ])
+    assert [m["name"] for m in billing] == ["Ada", "Bo"]
+    assert billing[0]["characters"] == ["Captain", "The Twin"]
+
+
+def test_top_billing_is_capped_but_still_folds_late_duplicates():
+    entries = [cast_entry(i, f"Person {i}", f"Role {i}") for i in range(1, 15)]
+    entries.append(cast_entry(1, "Person 1", "Another Role"))
+
+    billing = library.top_billing(entries)
+    assert len(billing) == library.CAST_KEPT
+    assert billing[0]["characters"] == ["Role 1", "Another Role"]
+
+
+def test_entries_without_a_person_are_skipped():
+    assert library.top_billing([{"character": {"name": "Nobody"}}]) == []
+    assert library.top_billing([{"person": {"id": 5}}]) == []
+
+
+def test_cast_is_stored_from_an_embedded_payload(database):
+    from conftest import make_show
+
+    library.save_show({
+        **make_show(show_id=7, name="Embedded"),
+        "_embedded": {"cast": [cast_entry(1, "Ada", "Captain")]},
+    })
+    show = library.show_public(library._show_row(7))
+    assert [m["name"] for m in show["cast"]] == ["Ada"]
+
+
+def test_a_payload_without_cast_does_not_blank_what_is_stored(database):
+    """Imports and refreshes work from slimmer payloads; they must not wipe it."""
+    from conftest import make_show
+
+    library.save_show({
+        **make_show(show_id=7, name="Embedded"),
+        "_embedded": {"cast": [cast_entry(1, "Ada", "Captain")]},
+    })
+    library.save_show(make_show(show_id=7, name="Embedded"))
+
+    show = library.show_public(library._show_row(7))
+    assert [m["name"] for m in show["cast"]] == ["Ada"]
+
+
+def test_never_fetched_cast_is_none_rather_than_empty(database):
+    """The two are different: one is worth a lookup, the other is not."""
+    from conftest import make_show
+
+    library.save_show(make_show(show_id=7, name="Unknown"))
+    assert library.show_public(library._show_row(7))["cast"] is None
+
+    library.save_cast(7, [])
+    assert library.show_public(library._show_row(7))["cast"] == []

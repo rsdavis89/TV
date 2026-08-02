@@ -149,6 +149,12 @@ SCHEMA = [
     CREATE INDEX IF NOT EXISTS premiere_airstamp_idx ON premiere(airstamp);
     CREATE INDEX IF NOT EXISTS premiere_show_idx ON premiere(show_id);
     """,
+    # v5: top billing, shown under a show's description. Named cast_list because
+    # CAST is a SQL keyword. NULL means never fetched, which is not the same as
+    # a show with no cast on record.
+    """
+    ALTER TABLE show ADD COLUMN cast_list TEXT;
+    """,
 ]
 
 

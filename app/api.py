@@ -164,6 +164,11 @@ async def get_show(show_id: int) -> dict:
     """
     detail = library.show_detail(show_id)
     if detail is not None:
+        # Shows stored before cast was kept have none; fetch it the first time
+        # one of them is opened rather than re-syncing the whole library.
+        if detail["show"]["cast"] is None:
+            await library.backfill_cast(show_id)
+            detail = library.show_detail(show_id)
         return detail
 
     try:

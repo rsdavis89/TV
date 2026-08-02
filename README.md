@@ -107,6 +107,19 @@ Two things will show up in the report and are worth knowing about:
 If you have some other CSV instead, the importer falls back to sniffing column
 headers: anything with a show, a season, an episode and a date will import.
 
+## The show page
+
+Under a show's description is its top billing — up to ten faces from TVmaze,
+in billing order, with the character each one plays. An actor credited with
+two roles is folded into one entry rather than spending two slots on the same
+face.
+
+Cast rides along with the ordinary show sync, so it costs no extra request for
+anything added from now on. Shows already in the library predate the column;
+each one fetches its cast the first time you open it, once, rather than the
+library re-syncing wholesale to fill in a single field. A show with no cast on
+record is recorded as such, so it is not looked up again on every visit.
+
 ## How "next up" works
 
 The next episode for a show is the **first unwatched regular episode in air

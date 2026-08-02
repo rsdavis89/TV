@@ -72,6 +72,54 @@ def episode_code(season: int | None, number: int | None) -> str:
 # --------------------------------------------------------------------------
 
 
+# Enough names to recognise a show by, without turning the page into a credits
+# roll. TVmaze returns cast in billing order, so the front of the list is the
+# part worth keeping.
+CAST_KEPT = 10
+
+
+def top_billing(cast: Iterable[dict]) -> list[dict]:
+    """Trim a TVmaze cast list to the few fields the show page renders.
+
+    An actor with two roles appears twice in the source, which would waste half
+    a short list on one face, so entries are folded together by person.
+    """
+    people: dict[int, dict] = {}
+    for entry in cast:
+        person = entry.get("person") or {}
+        character = entry.get("character") or {}
+        person_id = person.get("id")
+        if person_id is None or not person.get("name"):
+            continue
+        if person_id in people:
+            existing = people[person_id]
+            name = character.get("name")
+            if name and name not in existing["characters"]:
+                existing["characters"].append(name)
+            continue
+        if len(people) >= CAST_KEPT:
+            continue
+        people[person_id] = {
+            "person_id": person_id,
+            "name": person["name"],
+            "characters": [character["name"]] if character.get("name") else [],
+            "image": (person.get("image") or {}).get("medium"),
+            "self": bool(entry.get("self")),
+            "voice": bool(entry.get("voice")),
+        }
+    return list(people.values())
+
+
+def save_cast(show_id: int, cast: Iterable[dict]) -> int:
+    """Store cast for a show synced before cast was being kept."""
+    trimmed = top_billing(cast)
+    with tx() as conn:
+        conn.execute(
+            "UPDATE show SET cast_list = ? WHERE id = ?", (json.dumps(trimmed), show_id)
+        )
+    return len(trimmed)
+
+
 def save_show(payload: dict) -> int:
     """Upsert a TVmaze show payload, leaving user data untouched."""
     externals = payload.get("externals") or {}
@@ -100,6 +148,12 @@ def save_show(payload: dict) -> int:
         "remote_updated": payload.get("updated"),
         "synced_at": utcnow(),
     }
+    # Only when the payload actually carries a cast, so an import or any other
+    # caller working from a slimmer payload cannot blank one already stored.
+    embedded_cast = (payload.get("_embedded") or {}).get("cast")
+    if embedded_cast is not None:
+        row["cast_list"] = json.dumps(top_billing(embedded_cast))
+
     columns = ", ".join(row)
     placeholders = ", ".join(f":{key}" for key in row)
     updates = ", ".join(f"{key} = excluded.{key}" for key in row if key != "id")
@@ -162,6 +216,19 @@ async def sync_show(show_id: int) -> int:
     episodes = (payload.get("_embedded") or {}).get("episodes") or []
     save_show(payload)
     return save_episodes(show_id, episodes)
+
+
+async def backfill_cast(show_id: int) -> int:
+    """Fetch cast for a show stored before it was being kept.
+
+    One request, once per show, and only for shows actually opened — the
+    alternative is re-syncing the whole library to pick up a single column.
+    """
+    try:
+        cast = await tvmaze.get_cast(show_id)
+    except tvmaze.TVmazeError:
+        return 0
+    return save_cast(show_id, cast)
 
 
 async def add_show(show_id: int, *, follow: bool = True) -> dict:
@@ -366,6 +433,10 @@ def show_public(row: sqlite3.Row) -> dict:
     data = dict(row)
     data["genres"] = json.loads(data.get("genres") or "[]")
     data["schedule_days"] = json.loads(data.get("schedule_days") or "[]")
+    # None rather than [] when it has never been fetched, so the caller can tell
+    # "no cast on record" from "not looked up yet" and backfill the second.
+    stored = data.pop("cast_list", None)
+    data["cast"] = json.loads(stored) if stored else None
     return data
 
 

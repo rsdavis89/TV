@@ -454,3 +454,46 @@ def test_oversized_uploads_are_refused(client, monkeypatch):
         data={"dry_run": "true"},
     )
     assert response.status_code == 413
+
+
+def test_opening_a_show_stored_before_cast_was_kept_fetches_it(client, database, monkeypatch):
+    """The upgrade path: hundreds of shows already stored, none with a cast."""
+    from app import library
+
+    seed(database)
+    assert library.show_public(library._show_row(1))["cast"] is None
+
+    calls = []
+
+    async def get_cast(show_id):
+        calls.append(show_id)
+        return [{
+            "person": {"id": 9, "name": "Ada", "image": {"medium": "http://x/p.jpg"}},
+            "character": {"id": 90, "name": "Captain"},
+        }]
+
+    monkeypatch.setattr(library.tvmaze, "get_cast", get_cast)
+
+    body = client.get("/api/shows/1").json()
+    assert [m["name"] for m in body["show"]["cast"]] == ["Ada"]
+
+    # Stored, so opening it again does not go back out to the network.
+    client.get("/api/shows/1")
+    assert calls == [1]
+
+
+def test_a_show_with_no_cast_on_record_is_not_asked_for_twice(client, database, monkeypatch):
+    from app import library
+
+    seed(database)
+    calls = []
+
+    async def get_cast(show_id):
+        calls.append(show_id)
+        return []
+
+    monkeypatch.setattr(library.tvmaze, "get_cast", get_cast)
+
+    assert client.get("/api/shows/1").json()["show"]["cast"] == []
+    client.get("/api/shows/1")
+    assert calls == [1]

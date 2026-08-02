@@ -40,3 +40,34 @@ def test_migrate_is_idempotent(database):
     db.migrate()
     version = db.connect().execute("SELECT version FROM schema_version").fetchone()["version"]
     assert version == len(db.SCHEMA)
+
+
+def test_a_v4_database_gains_the_cast_column_without_losing_shows(tmp_path, monkeypatch):
+    """The live install is at v4 with hundreds of shows; this is that upgrade."""
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "v4.db")
+    if hasattr(db._local, "conn"):
+        db._local.conn.close()
+        del db._local.conn
+
+    monkeypatch.setattr(db, "SCHEMA", db.SCHEMA[:4])
+    db.migrate()
+    conn = db.connect()
+    assert "cast_list" not in {r["name"] for r in conn.execute("PRAGMA table_info(show)")}
+    conn.execute("INSERT INTO show (id, name, summary) VALUES (1, 'Kept', 'A show.')")
+    conn.execute("INSERT INTO follow (show_id, followed_at) VALUES (1, '2024-01-01T00:00:00+00:00')")
+    conn.commit()
+
+    monkeypatch.undo()
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "v4.db")
+    db.migrate()
+
+    conn = db.connect()
+    assert "cast_list" in {r["name"] for r in conn.execute("PRAGMA table_info(show)")}
+    row = conn.execute("SELECT name, summary, cast_list FROM show WHERE id = 1").fetchone()
+    assert row["name"] == "Kept"
+    assert row["summary"] == "A show."
+    # Not fetched yet, which is what tells the app to go and look.
+    assert row["cast_list"] is None
+
+    db._local.conn.close()
+    del db._local.conn

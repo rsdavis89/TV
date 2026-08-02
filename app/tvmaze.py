@@ -104,8 +104,15 @@ async def get_show(show_id: int) -> dict:
 
 
 async def get_show_with_episodes(show_id: int) -> dict:
-    """One call for the show plus its full episode list, specials included."""
-    return await _get(f"/shows/{show_id}", {"embed": "episodes", "specials": 1})
+    """One call for the show, its full episode list and its cast."""
+    return await _get(
+        f"/shows/{show_id}", {"embed[]": ["episodes", "cast"], "specials": 1}
+    )
+
+
+async def get_cast(show_id: int) -> list[dict]:
+    """Cast on its own, for shows already synced before it was being stored."""
+    return await _get(f"/shows/{show_id}/cast") or []
 
 
 async def get_episodes(show_id: int) -> list[dict]:

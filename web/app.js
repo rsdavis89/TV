@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-11';
+const APP_VERSION = '2026.08.02-12';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -985,7 +985,29 @@ async function viewShowDetail() {
 
     ${show.summary ? `<p class="summary">${esc(show.summary)}</p>` : ''}
 
+    ${castStrip(show.cast)}
+
     ${card.seasons.map((season) => renderSeason(show.id, season)).join('')}`;
+}
+
+// Top billing under the description. A scrolling strip rather than a list, so a
+// handful of names costs a couple of lines of page rather than ten rows.
+function castStrip(cast) {
+  if (!cast || !cast.length) return '';
+  return `
+    <div class="cast">
+      ${cast.map((member) => {
+        const role = member.characters.join(', ');
+        // "as himself" is what a chat show credit means; repeating the name is noise.
+        const sub = member.self && !role ? 'Self' : role;
+        return `
+          <div class="cast-member">
+            ${poster(member.image, 'cast-face', member.name)}
+            <div class="cast-name">${esc(member.name)}</div>
+            <div class="cast-role">${esc(member.voice && sub ? `${sub} (voice)` : sub)}</div>
+          </div>`;
+      }).join('')}
+    </div>`;
 }
 
 function renderSeason(showId, season) {

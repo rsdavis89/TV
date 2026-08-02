@@ -107,6 +107,23 @@ Two things will show up in the report and are worth knowing about:
 If you have some other CSV instead, the importer falls back to sniffing column
 headers: anything with a show, a season, an episode and a date will import.
 
+## Sorting your shows
+
+**Shows** sorts by name, recently watched, most left to watch, furthest along,
+or when a show first aired — newest or oldest first. The date sorts print the
+date on each card, since an order you cannot see is just an unexplained one,
+and a show with no date anywhere sorts last in both directions rather than
+heading one list on the strength of being empty.
+
+The date comes from TVmaze's premiere date for the show, falling back to the
+earliest regular episode on record for the few shows without one. It is that
+way round because an episode list is not always complete at the front — TVmaze
+has 8 Out of 10 Cats Does Countdown premiering in January 2012 and lists no
+episode before April 2013.
+
+The filter and sort you pick are remembered across a reload. The search box is
+not: that is a question you asked once, not a way you want the list to sit.
+
 ## The show page
 
 Under a show's description is its top billing — up to ten faces from TVmaze,

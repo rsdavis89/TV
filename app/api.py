@@ -143,12 +143,33 @@ def list_shows(
         needle = q.lower()
         cards = [card for card in cards if needle in (card["show"]["name"] or "").lower()]
 
+    # One grouped query for the whole list rather than one per card, and only
+    # for the shows whose own record does not carry a premiere date.
+    fallback = library.first_air_dates(
+        card["show"]["id"] for card in cards if not card["show"].get("premiered")
+    )
+    for card in cards:
+        card["first_aired"] = card["show"].get("premiered") or fallback.get(card["show"]["id"])
+
     if sort == "progress":
         cards.sort(key=lambda c: c["progress"]["percent"], reverse=True)
     elif sort == "remaining":
         cards.sort(key=lambda c: c["progress"]["remaining"], reverse=True)
     elif sort == "recent":
         cards.sort(key=lambda c: (c["last_watched"] or {}).get("watched_at") or "", reverse=True)
+    elif sort in {"newest", "oldest"}:
+        # A show with no date anywhere goes last in both directions, rather than
+        # heading one list and tailing the other on the strength of being empty.
+        dated = sorted(
+            (c for c in cards if c["first_aired"]),
+            key=lambda c: c["first_aired"],
+            reverse=sort == "newest",
+        )
+        undated = sorted(
+            (c for c in cards if not c["first_aired"]),
+            key=lambda c: (c["show"]["name"] or "").lower(),
+        )
+        cards = dated + undated
     else:
         cards.sort(key=lambda c: (c["show"]["name"] or "").lower())
     return cards

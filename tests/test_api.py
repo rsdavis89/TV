@@ -497,3 +497,59 @@ def test_a_show_with_no_cast_on_record_is_not_asked_for_twice(client, database, 
     assert client.get("/api/shows/1").json()["show"]["cast"] == []
     client.get("/api/shows/1")
     assert calls == [1]
+
+
+def make_dated_show(client, database, show_id, name, premiered, first_episode):
+    from conftest import make_episode, make_show
+
+    library.save_show({**make_show(show_id=show_id, name=name), "premiered": premiered})
+    library.save_episodes(show_id, [
+        make_episode(show_id * 100 + 1, 1, 1, f"{first_episode}T20:00:00+00:00", show_id=show_id)
+    ])
+    library.follow_show(show_id)
+
+
+def test_shows_can_be_sorted_by_when_they_first_aired(client, database):
+    make_dated_show(client, database, 1, "Middle", "2010-06-01", "2010-06-01")
+    make_dated_show(client, database, 2, "Oldest", "1999-01-04", "1999-01-04")
+    make_dated_show(client, database, 3, "Newest", "2024-11-20", "2024-11-20")
+
+    newest = client.get("/api/shows?sort=newest").json()
+    assert [c["show"]["name"] for c in newest] == ["Newest", "Middle", "Oldest"]
+
+    oldest = client.get("/api/shows?sort=oldest").json()
+    assert [c["show"]["name"] for c in oldest] == ["Oldest", "Middle", "Newest"]
+
+
+def test_a_show_without_a_premiere_date_falls_back_to_its_first_episode(client, database):
+    """TVmaze leaves `premiered` empty sometimes; the episodes still know."""
+    make_dated_show(client, database, 1, "Dated", "2015-03-01", "2015-03-01")
+    make_dated_show(client, database, 2, "Undated", None, "1990-05-05")
+
+    ordered = client.get("/api/shows?sort=oldest").json()
+    assert [c["show"]["name"] for c in ordered] == ["Undated", "Dated"]
+    assert ordered[0]["first_aired"] == "1990-05-05"
+
+
+def test_the_show_record_wins_over_a_late_starting_episode_list(client, database):
+    """The episode list is not always complete at the front.
+
+    TVmaze has 8 Out of 10 Cats Does Countdown premiering in January 2012 and
+    lists no episode before April 2013, so the record is the better answer.
+    """
+    make_dated_show(client, database, 1, "Late list", "2012-01-02", "2013-04-12")
+
+    [card] = client.get("/api/shows?sort=oldest").json()
+    assert card["first_aired"] == "2012-01-02"
+
+
+def test_shows_with_no_date_at_all_sort_last_in_both_directions(client, database):
+    from conftest import make_show
+
+    make_dated_show(client, database, 1, "Dated", "2015-03-01", "2015-03-01")
+    library.save_show({**make_show(show_id=2, name="Nothing known"), "premiered": None})
+    library.follow_show(2)
+
+    for order in ("newest", "oldest"):
+        names = [c["show"]["name"] for c in client.get(f"/api/shows?sort={order}").json()]
+        assert names[-1] == "Nothing known", order

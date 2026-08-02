@@ -570,6 +570,30 @@ def show_card(show_id: int) -> dict | None:
     }
 
 
+def first_air_dates(show_ids: Iterable[int]) -> dict[int, str]:
+    """The air date of each show's earliest regular episode.
+
+    A fallback for the show record's own `premiered`, not a replacement for it.
+    The episode list is not always complete at the front: TVmaze has 8 Out of
+    10 Cats Does Countdown premiering on 2 January 2012, while the earliest
+    episode it lists is from April 2013. The show record is the better answer
+    to when a show came out; this covers the shows that do not carry one.
+    """
+    ids = list(show_ids)
+    if not ids:
+        return {}
+    marks = ",".join("?" for _ in ids)
+    rows = connect().execute(
+        f"""
+        SELECT show_id, MIN(airdate) AS first_aired FROM episode
+        WHERE show_id IN ({marks}) AND airdate IS NOT NULL AND is_special = 0
+        GROUP BY show_id
+        """,
+        ids,
+    ).fetchall()
+    return {row["show_id"]: row["first_aired"] for row in rows if row["first_aired"]}
+
+
 def followed_ids(include_archived: bool = False) -> list[int]:
     clause = "" if include_archived else " WHERE archived = 0"
     rows = connect().execute(f"SELECT show_id FROM follow{clause}").fetchall()

@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-12';
+const APP_VERSION = '2026.08.02-14';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -116,6 +116,15 @@ function airLabel(stamp) {
   if (days < 0 && days >= -6) return `${-days} days ago`;
   if (days < 0) return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function firstAiredLabel(date) {
+  if (!date) return 'unknown';
+  // A plain date, so parse it as local noon rather than letting it be read as
+  // UTC midnight and slide to the previous day west of Greenwich.
+  return new Date(`${date}T12:00:00`).toLocaleDateString(
+    undefined, { year: 'numeric', month: 'long', day: 'numeric' }
+  );
 }
 
 function dayLabel(stamp) {
@@ -289,6 +298,10 @@ function showCard(card, options = {}) {
   const remaining = progress.remaining > 1
     ? `<span class="pill">${progress.remaining} to watch</span>`
     : '';
+  if (options.showFirstAired) {
+    lines.push(`<div class="card-line muted">First aired ${esc(firstAiredLabel(card.first_aired))}</div>`);
+  }
+
   const star = card.favorite ? '<span class="star" title="Favorite">&#9733;</span> ' : '';
   const pin = card.priority && !options.inPriority
     ? '<span class="pill prio">Priority</span> '
@@ -767,6 +780,23 @@ const EMPTY_MESSAGES = {
   active: 'No shows here yet.',
 };
 
+// How you like the list arranged is a preference, not a transient query, so it
+// outlives a reload the way the tab you were on does. The search box is not
+// kept: that is a question you asked once, not a way you want the list to sit.
+const SHOW_SORTS = ['name', 'recent', 'remaining', 'progress', 'newest', 'oldest'];
+
+function restoreShowFilter() {
+  const filter = localStorage.getItem('tv.showFilter');
+  const sort = localStorage.getItem('tv.showSort');
+  if (filter && filter in SHOW_FILTERS) state.showFilter.filter = filter;
+  if (sort && SHOW_SORTS.includes(sort)) state.showFilter.sort = sort;
+}
+
+function rememberShowFilter() {
+  localStorage.setItem('tv.showFilter', state.showFilter.filter);
+  localStorage.setItem('tv.showSort', state.showFilter.sort);
+}
+
 async function viewShows() {
   const { filter, sort, q } = state.showFilter;
   const params = new URLSearchParams({ filter, sort, q });
@@ -790,6 +820,8 @@ async function viewShows() {
         <option value="recent" ${sort === 'recent' ? 'selected' : ''}>Recently watched</option>
         <option value="remaining" ${sort === 'remaining' ? 'selected' : ''}>Most left to watch</option>
         <option value="progress" ${sort === 'progress' ? 'selected' : ''}>Furthest along</option>
+        <option value="newest" ${sort === 'newest' ? 'selected' : ''}>First aired — newest</option>
+        <option value="oldest" ${sort === 'oldest' ? 'selected' : ''}>First aired — oldest</option>
       </select>
     </div>
     ${cards.length ? `
@@ -798,7 +830,11 @@ async function viewShows() {
         <button class="ghost" id="select-toggle">${state.selecting ? 'Done' : 'Select'}</button>
       </div>` : ''}
     ${cards.length
-      ? cards.map((card) => showCard(card, { selectable: state.selecting })).join('')
+      ? cards.map((card) => showCard(card, {
+          selectable: state.selecting,
+          // Sorting by a date you cannot see is just an unexplained order.
+          showFirstAired: sort === 'newest' || sort === 'oldest',
+        })).join('')
       : `<div class="empty">${esc(EMPTY_MESSAGES[filter] || 'Nothing here.')}</div>`}`;
 
   if (state.selecting) renderBulkBar(visible);
@@ -815,10 +851,12 @@ async function viewShows() {
   document.getElementById('show-which').addEventListener('change', (event) => {
     state.showFilter.filter = event.target.value;
     state.selected = new Set();
+    rememberShowFilter();
     render();
   });
   document.getElementById('show-sort').addEventListener('change', (event) => {
     state.showFilter.sort = event.target.value;
+    rememberShowFilter();
     render();
   });
   const selectToggle = document.getElementById('select-toggle');
@@ -1641,6 +1679,7 @@ async function boot() {
     return;
   }
   showApp();
+  restoreShowFilter();
   const start = parseHash() || { view: 'home', showId: null };
   // Replace rather than push, so the first entry in history is where we landed.
   history.replaceState({ ...start }, '', hashFor(start.view, start.showId));

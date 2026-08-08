@@ -553,3 +553,43 @@ def test_shows_with_no_date_at_all_sort_last_in_both_directions(client, database
     for order in ("newest", "oldest"):
         names = [c["show"]["name"] for c in client.get(f"/api/shows?sort={order}").json()]
         assert names[-1] == "Nothing known", order
+
+
+def test_clearing_finished_priority_shows_leaves_the_rest_alone(client, database):
+    """What the Priority tab's Clear finished button does, end to end."""
+    from conftest import make_episode, make_show
+
+    def pinned(show_id, name, status, airstamp, watched):
+        library.save_show({**make_show(show_id=show_id, name=name), "status": status})
+        library.save_episodes(show_id, [
+            make_episode(show_id * 100 + 1, 1, 1, airstamp, show_id=show_id)
+        ])
+        library.follow_show(show_id)
+        library.set_priority(show_id, True)
+        if watched:
+            library.mark_watched(show_id * 100 + 1)
+
+    # Ended and fully watched: finished.
+    pinned(1, "Done", "Ended", "2020-01-01T20:00:00+00:00", watched=True)
+    # Running and fully watched: caught up, but it may come back.
+    pinned(2, "Between seasons", "Running", "2020-01-01T20:00:00+00:00", watched=True)
+    # Ended but not finished: still something to watch.
+    pinned(3, "Half done", "Ended", "2020-01-01T20:00:00+00:00", watched=False)
+
+    before = {c["show"]["name"]: c["status"] for c in client.get("/api/shows?filter=priority").json()}
+    assert before == {"Done": "complete", "Between seasons": "caught_up", "Half done": "ready"}
+
+    result = client.post(
+        "/api/shows/bulk", json={"show_ids": [1], "action": "unpriority"}
+    ).json()
+    assert result["changed"] == 1
+    assert result["verb"] == "unpinned"
+
+    after = sorted(c["show"]["name"] for c in client.get("/api/shows?filter=priority").json())
+    assert after == ["Between seasons", "Half done"]
+
+    # Unpinning is not unfollowing, and it does not touch watch history.
+    assert sorted(c["show"]["name"] for c in client.get("/api/shows").json()) == [
+        "Between seasons", "Done", "Half done"
+    ]
+    assert client.get("/api/shows/1").json()["progress"]["watched"] == 1

@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-14';
+const APP_VERSION = '2026.08.02-15';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -425,11 +425,46 @@ async function viewPriority() {
 
   const waiting = cards.filter((card) => card.status === 'ready');
   const later = cards.filter((card) => card.status !== 'ready');
+  // Ended, and nothing left in it. Caught-up shows that are still running are
+  // exactly what a shortlist is for, so they are not swept up in this.
+  const finished = cards.filter((card) => card.status === 'complete');
 
   main.innerHTML = [
     section('Ready to watch', waiting, waiting.length ? `${waiting.length} of ${cards.length}` : '', { inPriority: true }),
     section('Nothing waiting yet', later, '', { inPriority: true }),
+    finished.length ? `
+      <div class="card-actions" style="margin-top:2px">
+        <button class="secondary" id="clear-finished">
+          Clear ${finished.length} finished show${finished.length === 1 ? '' : 's'}
+        </button>
+      </div>` : '',
   ].join('');
+
+  const clearFinished = document.getElementById('clear-finished');
+  if (clearFinished) {
+    clearFinished.addEventListener('click', () => unpin(finished));
+  }
+}
+
+// Priority never expires on its own, so a show finished months ago still sits
+// on the shortlist. This clears those out without touching anything else.
+async function unpin(cards) {
+  const many = cards.length === 1 ? '' : 's';
+  if (!confirm(
+    `Take ${cards.length} finished show${many} off your priority list? `
+    + `They stay in your library, and nothing you have watched changes.`
+  )) return;
+
+  try {
+    const result = await api('/shows/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ show_ids: cards.map((card) => card.show.id), action: 'unpriority' }),
+    });
+    toast(`${result.changed} show${result.changed === 1 ? '' : 's'} ${result.verb}`);
+    await render();
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 function updatePriorityBadge(count) {

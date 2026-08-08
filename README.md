@@ -107,6 +107,23 @@ Two things will show up in the report and are worth knowing about:
 If you have some other CSV instead, the importer falls back to sniffing column
 headers: anything with a show, a season, an episode and a date will import.
 
+## Priority watch
+
+The **Priority** tab is a shortlist of what you want to get to next. It is
+separate from Up Next by design: pinning a show does not promote it there, so
+the shortlist never distorts the list you actually watch from.
+
+Within the tab, shows split by whether there is something to watch right now.
+Catching up on one moves it from **Ready to watch** down into **Nothing waiting
+yet**, ranked by how likely it is to come back — a dated next episode above one
+that is merely running, above one that has ended.
+
+Priority never expires on its own, so a show that ended months ago would sit on
+the shortlist forever. **Clear finished** takes those off in one go. Finished
+means ended *and* nothing left in it; a show you are caught up on that is still
+running is exactly what a shortlist is for, and is left alone. Clearing unpins
+only — the shows stay in your library and no watch history is touched.
+
 ## Sorting your shows
 
 **Shows** sorts by name, recently watched, most left to watch, furthest along,

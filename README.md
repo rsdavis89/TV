@@ -119,10 +119,15 @@ yet**, ranked by how likely it is to come back — a dated next episode above on
 that is merely running, above one that has ended.
 
 Priority never expires on its own, so a show that ended months ago would sit on
-the shortlist forever. **Clear finished** takes those off in one go. Finished
-means ended *and* nothing left in it; a show you are caught up on that is still
-running is exactly what a shortlist is for, and is left alone. Clearing unpins
-only — the shows stay in your library and no watch history is touched.
+the shortlist forever. Every card carries an **Unpin** button next to Details
+for taking one off, and **Clear finished** at the foot of the tab does the
+whole backlog at once. Finished means ended *and* nothing left in it; a show
+you are caught up on that is still running is exactly what a shortlist is for,
+and is left out of the bulk clear — though you can still unpin it by hand.
+
+Unpinning is not unfollowing. The shows stay in your library and no watch
+history is touched. Only the bulk clear asks for confirmation, since a single
+unpin is one tap to undo.
 
 ## Sorting your shows
 

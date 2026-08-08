@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-15';
+const APP_VERSION = '2026.08.02-16';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -333,6 +333,9 @@ function showCard(card, options = {}) {
             ? `<button class="primary" data-watch="${next.id}">Watched ${esc(next.code)}</button>`
             : ''}
           <button class="secondary" data-open="${show.id}">Details</button>
+          ${options.inPriority
+            ? `<button class="ghost" data-unpin="${show.id}">Unpin</button>`
+            : ''}
         </div>
       </div>
     </div>`;
@@ -809,7 +812,7 @@ const SHOW_FILTERS = {
 
 const EMPTY_MESSAGES = {
   favorites: 'No favorites yet. Open a show and tap ☆ Favorite.',
-  priority: 'Nothing marked priority. Open a show and tap ○ Priority to pin it to the top of Up Next.',
+  priority: 'Nothing marked priority. Open a show and tap ○ Priority to add it to your shortlist on the Priority tab.',
   unstarted: 'You have watched something from every show you follow.',
   archived: 'Nothing archived.',
   active: 'No shows here yet.',
@@ -1503,7 +1506,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-service], #services-reset, [data-backup-now], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-unpin], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-service], #services-reset, [data-backup-now], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
@@ -1534,6 +1537,18 @@ document.addEventListener('click', async (event) => {
     if (state.expanded.has(data.expand)) state.expanded.delete(data.expand);
     else state.expanded.add(data.expand);
     return render();  // no scroll target, so the page holds its place
+  }
+
+  // Taking one show off the shortlist, from the card, without opening it. The
+  // id comes off the button rather than state.showId, since this fires from a
+  // list rather than a show's own page.
+  if (data.unpin) {
+    await api(`/shows/${data.unpin}/priority`, {
+      method: 'POST',
+      body: JSON.stringify({ value: false }),
+    });
+    toast('Taken off your priority list');
+    return render();
   }
 
   if (data.go) return go(data.go);
@@ -1650,7 +1665,7 @@ document.addEventListener('click', async (event) => {
       method: 'POST',
       body: JSON.stringify({ value: on }),
     });
-    toast(on ? 'Pinned to the top of Up Next' : 'No longer a priority');
+    toast(on ? 'Added to your priority list' : 'Taken off your priority list');
     return render();
   }
 

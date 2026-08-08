@@ -155,6 +155,12 @@ SCHEMA = [
     """
     ALTER TABLE show ADD COLUMN cast_list TEXT;
     """,
+    # v6: premieres you have looked at and passed on. Deliberately a column on
+    # premiere rather than its own table, so a dismissal cannot outlive the row
+    # it refers to; the sweep leaves it alone by not naming it in its upsert.
+    """
+    ALTER TABLE premiere ADD COLUMN dismissed_at TEXT;
+    """,
 ]
 
 

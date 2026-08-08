@@ -220,7 +220,34 @@ def due_for_sweep() -> bool:
     return last < cutoff
 
 
-def listing(back_days: int = 14, ahead_days: int = 21, include_followed: bool = False) -> dict:
+def dismiss(episode_id: int, value: bool = True) -> bool:
+    """Hide a premiere you have looked at and passed on, or bring it back.
+
+    Per premiere rather than per show: a show you pass on this year is a fresh
+    question when it comes back for another season.
+    """
+    with tx() as conn:
+        cursor = conn.execute(
+            "UPDATE premiere SET dismissed_at = ? WHERE episode_id = ?",
+            (utcnow() if value else None, episode_id),
+        )
+    return cursor.rowcount > 0
+
+
+def restore_all() -> int:
+    with tx() as conn:
+        cursor = conn.execute(
+            "UPDATE premiere SET dismissed_at = NULL WHERE dismissed_at IS NOT NULL"
+        )
+    return max(cursor.rowcount, 0)
+
+
+def listing(
+    back_days: int = 14,
+    ahead_days: int = 21,
+    include_followed: bool = False,
+    include_dismissed: bool = False,
+) -> dict:
     """Premieres in the window, newest first, flagged against your library."""
     now = datetime.now(timezone.utc)
     start = (now - timedelta(days=max(back_days, 0))).replace(microsecond=0).isoformat()
@@ -239,16 +266,23 @@ def listing(back_days: int = 14, ahead_days: int = 21, include_followed: bool = 
 
     items = []
     channels: dict[str, int] = {}
+    hidden = 0
     for row in rows:
         item = dict(row)
         item["genres"] = json.loads(item.get("genres") or "[]")
         item["following"] = bool(item["following"])
+        item["dismissed"] = bool(item.get("dismissed_at"))
         item["aired"] = item["airstamp"] <= now.replace(microsecond=0).isoformat()
         channels[item["channel"]] = channels.get(item["channel"], 0) + 1
         # A returning season of something you already follow is not a discovery;
         # your own episode tracking already has it.
         if item["following"] and not include_followed:
             continue
+        if item["dismissed"]:
+            # Counted before the filter, so the tab can offer them back.
+            hidden += 1
+            if not include_dismissed:
+                continue
         items.append(item)
 
     return {
@@ -259,6 +293,7 @@ def listing(back_days: int = 14, ahead_days: int = 21, include_followed: bool = 
         "swept_at": get_meta("premieres_swept_at"),
         "stored": connect().execute("SELECT COUNT(*) AS n FROM premiere").fetchone()["n"],
         "horizon": horizon(),
+        "hidden": hidden,
         "window": {"back_days": back_days, "ahead_days": ahead_days},
     }
 

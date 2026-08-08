@@ -235,6 +235,17 @@ Shows you already follow are left out, since a returning season of something
 you watch is already covered by your episode tracking. Tapping a premiere opens
 the show so you can read about it before adding.
 
+Adding a show takes it off the list, because it is no longer something you do
+not follow. Passing on one needs saying: **✕** on the row, or swipe it left.
+The list is a queue to work through, and without a way to decline something it
+would only ever get longer. Dismissals are per premiere, not per show, so a
+series you pass on this year asks again when it returns for another season —
+and the foot of the tab offers **Bring back N hidden** if you go too fast.
+
+The swipe deliberately does nothing until the drag is clearly horizontal and
+past 90px, so a scroll that starts on a row still scrolls and a short pull
+springs back.
+
 Everything still to come arrives in a single `/schedule/full` call, and only
 the past needs a request per day per schedule, so a sweep is about thirty
 requests. It runs at most twice a day and caches into a table the tab reads

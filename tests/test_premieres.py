@@ -259,3 +259,64 @@ async def test_sweep_records_when_it_last_ran(database, fake_schedule):
     assert premieres.listing()["swept_at"] is None
     await premieres.sweep(back_days=0)
     assert premieres.listing()["swept_at"] is not None
+
+
+# --------------------------------------------------------------------------
+# dismissing a premiere you have passed on
+# --------------------------------------------------------------------------
+
+
+def test_a_dismissed_premiere_drops_out_of_the_listing(database):
+    from test_library import stamp
+
+    store(database, [
+        make_row(900, 70, "Keep", 1, stamp(1)),
+        make_row(901, 71, "Pass", 1, stamp(2)),
+    ])
+
+    assert premieres.dismiss(901) is True
+    listing = premieres.listing()
+    assert [p["show_name"] for p in listing["premieres"]] == ["Keep"]
+    # Counted so the tab can offer them back.
+    assert listing["hidden"] == 1
+
+    everything = premieres.listing(include_dismissed=True)
+    assert {p["show_name"]: p["dismissed"] for p in everything["premieres"]} == {
+        "Keep": False, "Pass": True
+    }
+
+
+def test_dismissing_something_that_is_not_there_reports_it(database):
+    assert premieres.dismiss(404404) is False
+
+
+def test_a_dismissal_can_be_undone_one_at_a_time_or_all_at_once(database):
+    from test_library import stamp
+
+    store(database, [
+        make_row(900, 70, "One", 1, stamp(1)),
+        make_row(901, 71, "Two", 1, stamp(2)),
+    ])
+    premieres.dismiss(900)
+    premieres.dismiss(901)
+    assert premieres.listing()["premieres"] == []
+
+    premieres.dismiss(900, value=False)
+    assert [p["show_name"] for p in premieres.listing()["premieres"]] == ["One"]
+
+    assert premieres.restore_all() == 1
+    assert len(premieres.listing()["premieres"]) == 2
+    # Nothing left to restore.
+    assert premieres.restore_all() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_does_not_undismiss_what_you_passed_on(database, fake_schedule):
+    """The sweep re-upserts every row it finds; the dismissal must survive."""
+    await premieres.sweep(back_days=0)
+    [row] = database.execute("SELECT episode_id FROM premiere LIMIT 1").fetchall()
+    premieres.dismiss(row["episode_id"])
+    assert premieres.listing()["hidden"] == 1
+
+    await premieres.sweep(back_days=0)
+    assert premieres.listing()["hidden"] == 1

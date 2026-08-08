@@ -330,8 +330,26 @@ def list_premieres(
     back: int = Query(14, ge=0, le=120),
     ahead: int = Query(90, ge=0, le=120),
     include_followed: bool = Query(False),
+    include_dismissed: bool = Query(False),
 ) -> dict:
-    return premieres.listing(back_days=back, ahead_days=ahead, include_followed=include_followed)
+    return premieres.listing(
+        back_days=back,
+        ahead_days=ahead,
+        include_followed=include_followed,
+        include_dismissed=include_dismissed,
+    )
+
+
+@router.post("/premieres/{episode_id}/dismiss")
+def dismiss_premiere(episode_id: int, body: FlagBody) -> dict:
+    if not premieres.dismiss(episode_id, body.value):
+        raise HTTPException(status_code=404, detail="No such premiere")
+    return {"ok": True, "dismissed": body.value}
+
+
+@router.post("/premieres/restore")
+def restore_premieres() -> dict:
+    return {"ok": True, "restored": premieres.restore_all()}
 
 
 @router.post("/premieres/refresh")

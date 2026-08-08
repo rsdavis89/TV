@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-16';
+const APP_VERSION = '2026.08.02-17';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -545,7 +545,24 @@ async function viewNew() {
         ? `TVmaze's schedule reaches ${esc(dayLabel(premieres.horizon))}.`
         : ''}
       <button class="ghost" id="premieres-refresh" style="padding:2px 6px">Check now</button>
+      ${premieres.hidden ? `
+        <button class="ghost" id="premieres-restore" style="padding:2px 6px">
+          Bring back ${premieres.hidden} hidden
+        </button>` : ''}
     </p>`;
+
+  const restore = document.getElementById('premieres-restore');
+  if (restore) {
+    restore.addEventListener('click', async () => {
+      try {
+        const result = await api('/premieres/restore', { method: 'POST' });
+        toast(`${result.restored} brought back`);
+        await render();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+  }
 
   document.getElementById('premieres-refresh').addEventListener('click', async (event) => {
     event.target.disabled = true;
@@ -614,6 +631,13 @@ function premiereEmptyState(premieres) {
       </p>`;
   }
   if (!premieres.premieres.length) {
+    if (premieres.hidden) {
+      return `
+        <p class="muted" style="margin:0 2px">
+          You have been through everything in this window — ${premieres.hidden}
+          hidden, the rest are shows you already follow.
+        </p>`;
+    }
     return `
       <p class="muted" style="margin:0 2px">
         ${premieres.stored} premieres are stored, but every one in this window is
@@ -665,7 +689,7 @@ function premiereRow(item) {
     : `<span class="pill">Season ${item.season}</span>`;
   const meta = [item.channel, (item.genres || []).slice(0, 2).join(', ')].filter(Boolean).join(' · ');
   return `
-    <div class="row" data-open="${item.show_id}">
+    <div class="row premiere-row" data-open="${item.show_id}" data-episode="${item.episode_id}">
       ${poster(item.image, 'thumb', item.show_name)}
       <div class="row-body">
         <div class="row-title">${esc(item.show_name)} ${badge}</div>
@@ -673,6 +697,8 @@ function premiereRow(item) {
         <div class="row-sub">${esc(timeOf(new Date(item.airstamp)))}</div>
       </div>
       <button class="secondary" data-add="${item.show_id}">Add</button>
+      <button class="dismiss" data-dismiss="${item.episode_id}" title="Not interested"
+              aria-label="Not interested in ${esc(item.show_name)}">&#10005;</button>
     </div>`;
 }
 
@@ -1505,8 +1531,71 @@ document.querySelectorAll('.tab').forEach((tab) => {
 
 document.getElementById('refresh-btn').addEventListener('click', runRefresh);
 
+/* --------------------------------------------- swipe a premiere away */
+
+// How far left before letting go actually dismisses.
+const SWIPE_TRIGGER = 90;
+// How far left before the gesture is treated as a swipe rather than a scroll
+// that happens to wobble.
+const SWIPE_COMMIT = 12;
+
+let swipe = null;
+
+function endSwipe() {
+  if (!swipe) return;
+  const { row, dx, committed } = swipe;
+  swipe = null;
+  if (!committed) return;
+  row.style.transition = '';
+  row.style.transform = '';
+  row.style.opacity = '';
+  if (dx <= -SWIPE_TRIGGER) dismissPremiere(row.dataset.episode);
+}
+
+main.addEventListener('touchstart', (event) => {
+  const row = event.target.closest('.premiere-row');
+  if (!row || event.touches.length !== 1) return;
+  swipe = { row, x: event.touches[0].clientX, y: event.touches[0].clientY, dx: 0, committed: false };
+}, { passive: true });
+
+// Not passive, because a committed swipe has to stop the page scrolling under
+// it. Nothing is prevented until the gesture is unambiguously a leftward drag,
+// so an ordinary scroll that starts on a row is never interfered with.
+main.addEventListener('touchmove', (event) => {
+  if (!swipe) return;
+  const dx = event.touches[0].clientX - swipe.x;
+  const dy = event.touches[0].clientY - swipe.y;
+
+  if (!swipe.committed) {
+    if (Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }  // a scroll
+    if (dx > -SWIPE_COMMIT) return;                             // not yet, or rightward
+    swipe.committed = true;
+    swipe.row.style.transition = 'none';
+  }
+
+  event.preventDefault();
+  swipe.dx = Math.min(dx, 0);
+  swipe.row.style.transform = `translateX(${swipe.dx}px)`;
+  swipe.row.style.opacity = String(Math.max(1 + swipe.dx / 260, 0.25));
+}, { passive: false });
+
+main.addEventListener('touchend', endSwipe, { passive: true });
+main.addEventListener('touchcancel', endSwipe, { passive: true });
+
+async function dismissPremiere(episodeId) {
+  try {
+    await api(`/premieres/${episodeId}/dismiss`, {
+      method: 'POST',
+      body: JSON.stringify({ value: true }),
+    });
+    await render();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 document.addEventListener('click', async (event) => {
-  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-unpin], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-service], #services-reset, [data-backup-now], .card-title, .poster');
+  const target = event.target.closest('[data-watch], [data-toggle], [data-open], [data-add], [data-through], [data-archive], [data-favorite], [data-priority], [data-unpin], [data-dismiss], [data-remove], [data-resync], [data-season-toggle], [data-season-mark], [data-back], [data-back-settings], [data-go], [data-stats], [data-pick], [data-bulk], [data-expand], [data-service], #services-reset, [data-backup-now], .card-title, .poster');
   if (!target) return;
 
   const data = target.dataset;
@@ -1550,6 +1639,8 @@ document.addEventListener('click', async (event) => {
     toast('Taken off your priority list');
     return render();
   }
+
+  if (data.dismiss) return dismissPremiere(data.dismiss);
 
   if (data.go) return go(data.go);
   if (data.stats) return viewStats();

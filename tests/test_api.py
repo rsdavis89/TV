@@ -593,3 +593,33 @@ def test_clearing_finished_priority_shows_leaves_the_rest_alone(client, database
         "Between seasons", "Done", "Half done"
     ]
     assert client.get("/api/shows/1").json()["progress"]["watched"] == 1
+
+
+def test_the_watch_log_is_newest_first_and_pages(client, database):
+    """Backs the Watch Log screen: what you watched, in the order you watched it."""
+    seed(database)
+    library.mark_watched(101, watched_at="2024-03-01T20:00:00+00:00")
+    library.mark_watched(102, watched_at="2024-03-03T21:30:00+00:00")
+
+    log = client.get("/api/history").json()
+    assert [row["watched_at"] for row in log] == [
+        "2024-03-03T21:30:00+00:00", "2024-03-01T20:00:00+00:00"
+    ]
+    # Everything the screen renders per row.
+    for key in ("show_id", "show_name", "show_image", "code", "watched_at", "source"):
+        assert key in log[0], key
+
+    assert len(client.get("/api/history?limit=1").json()) == 1
+    assert client.get("/api/history?limit=1&offset=1").json()[0]["watched_at"] \
+        == "2024-03-01T20:00:00+00:00"
+    assert client.get("/api/history?limit=1&offset=2").json() == []
+
+
+def test_the_watch_log_records_where_a_mark_came_from(client, database):
+    """Imported history and episodes ticked in the app read differently."""
+    seed(database)
+    library.mark_watched(101)
+    library.mark_watched(102, source="import")
+
+    sources = {row["id"]: row["source"] for row in client.get("/api/history").json()}
+    assert sources == {101: "app", 102: "import"}

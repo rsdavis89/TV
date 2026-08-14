@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-17';
+const APP_VERSION = '2026.08.02-18';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -23,6 +23,7 @@ const state = {
   showFilter: { filter: 'active', sort: 'name', q: '' },
   selecting: false,
   selected: new Set(),
+  history: { rows: [], done: false },
   expanded: new Set(),
 };
 
@@ -34,6 +35,7 @@ const TITLES = {
   shows: 'Your Shows',
   search: 'Add a Show',
   settings: 'More',
+  history: 'Watch Log',
   show: '',
 };
 
@@ -204,6 +206,9 @@ async function go(view, showId = null, { push = true } = {}) {
   // keeps where you were.
   if (view === 'calendar' && state.view !== 'show') state.calendarJump = true;
   if (view === 'new' && state.view !== 'show') state.newJump = true;
+  // Reload the log on arrival rather than serving pages fetched last time,
+  // which would be missing anything ticked since.
+  if (view === 'history' && state.view !== 'show') state.history = { rows: [], done: false };
 
   const arriving = viewKey(view, showId);
   // Tapping the tab you are already on jumps to the top, as tab bars do.
@@ -255,6 +260,7 @@ async function render(scrollTarget = null) {
       shows: viewShows,
       search: viewSearch,
       settings: viewSettings,
+      history: viewHistory,
       show: viewShowDetail,
     };
     await (views[state.view] || viewHome)();
@@ -1189,7 +1195,10 @@ async function viewSettings() {
         <div class="stat"><div class="value">${status.following}</div><div class="label">Shows followed</div></div>
         <div class="stat"><div class="value">${status.episodes_watched}</div><div class="label">Episodes watched</div></div>
       </div>
-      <button class="secondary" data-stats="1">View watch stats</button>
+      <div class="card-actions">
+        <button class="secondary" data-stats="1">View watch stats</button>
+        <button class="secondary" data-go="history">Watch log</button>
+      </div>
     </section>
 
     <section class="section">
@@ -1451,6 +1460,84 @@ async function downloadBackup() {
   link.download = `tv-tracker-${new Date().toISOString().slice(0, 10)}.json`;
   link.click();
   URL.revokeObjectURL(link.href);
+}
+
+/* ------------------------------------------------------------- watch log */
+
+const HISTORY_PAGE = 100;
+
+async function viewHistory() {
+  if (!state.history.rows.length && !state.history.done) {
+    const first = await api(`/history?limit=${HISTORY_PAGE}&offset=0`);
+    state.history = { rows: first, done: first.length < HISTORY_PAGE };
+  }
+  const { rows, done } = state.history;
+
+  if (!rows.length) {
+    main.innerHTML = `
+      <button class="back" data-back-settings="1">&larr; Back</button>
+      <div class="empty">
+        <strong>Nothing logged yet</strong>
+        Every episode you tick is stored with the moment you ticked it. Once you
+        have marked something, it shows up here.
+      </div>`;
+    return;
+  }
+
+  main.innerHTML = `
+    <button class="back" data-back-settings="1">&larr; Back</button>
+    ${historyDays(rows)}
+    ${done
+      ? `<p class="muted" style="margin:10px 2px 0;text-align:center">
+           The whole log — ${rows.length} episode${rows.length === 1 ? '' : 's'}.
+         </p>`
+      : `<button class="secondary expander" id="history-more">Load more</button>`}`;
+
+  const more = document.getElementById('history-more');
+  if (more) {
+    more.addEventListener('click', async () => {
+      more.disabled = true;
+      more.textContent = 'Loading…';
+      try {
+        const next = await api(`/history?limit=${HISTORY_PAGE}&offset=${rows.length}`);
+        state.history = { rows: rows.concat(next), done: next.length < HISTORY_PAGE };
+        await render();  // no scroll target, so the page holds its place
+      } catch (error) {
+        toast(error.message);
+        more.disabled = false;
+        more.textContent = 'Load more';
+      }
+    });
+  }
+}
+
+// Grouped by the day you watched, not the day it aired — which is what makes
+// this different from Calendar. A binge of a 1994 show belongs under today.
+function historyDays(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = localDay(row.watched_at);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+
+  return [...groups.entries()].map(([day, items]) => `
+    <div class="date-head">
+      ${esc(dayHeading(day))} <span class="muted">· ${items.length}</span>
+    </div>
+    <div class="list">
+      ${items.map((row) => `
+        <div class="row" data-open="${row.show_id}">
+          ${poster(row.show_image, 'thumb', row.show_name)}
+          <div class="row-body">
+            <div class="row-title">${esc(row.show_name)}</div>
+            <div class="row-sub">${esc(row.code)} · ${esc(row.name || '')}</div>
+            <div class="row-sub">
+              ${esc(timeOf(new Date(row.watched_at)))}${row.source === 'import' ? ' · imported' : ''}
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
 }
 
 async function viewStats() {

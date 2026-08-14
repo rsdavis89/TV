@@ -107,6 +107,21 @@ Two things will show up in the report and are worth knowing about:
 If you have some other CSV instead, the importer falls back to sniffing column
 headers: anything with a show, a season, an episode and a date will import.
 
+## The watch log
+
+Every tick is stored with the moment you ticked it, and **More → Watch log**
+shows them back as a diary: grouped by the day you watched, newest first, a
+hundred at a time.
+
+This is the counterpart to Calendar, not a duplicate of it. Calendar is
+ordered by when an episode *aired*; the log is ordered by when *you* watched
+it. Bingeing a show from 1994 puts those episodes under today here and under
+1994 there.
+
+Watches carry where they came from, so history imported from TV Time is
+labelled as imported and is not confused with something you ticked yourself.
+Tapping any entry opens the show.
+
 ## Priority watch
 
 The **Priority** tab is a shortlist of what you want to get to next. It is

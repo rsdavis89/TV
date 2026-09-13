@@ -795,10 +795,14 @@ function onLookbackChange(event) {
   render(0);
 }
 
+// Keyed on the local day, not the stamp's UTC date. The time under each
+// heading is rendered locally, so slicing the UTC date put a 9pm Sunday airing
+// under Monday with "9:00 PM" sitting beside it. Anything airing later than
+// 8pm Eastern crosses midnight UTC and was landing a day late.
 function groupByDay(episodes, past) {
   const groups = new Map();
   episodes.forEach((episode) => {
-    const key = (episode.airstamp || '').slice(0, 10);
+    const key = episode.airstamp ? localDay(episode.airstamp) : '';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(episode);
   });

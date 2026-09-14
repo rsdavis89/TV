@@ -551,3 +551,90 @@ def test_never_fetched_cast_is_none_rather_than_empty(database):
 
     library.save_cast(7, [])
     assert library.show_public(library._show_row(7))["cast"] == []
+
+
+# --------------------------------------------------------------------- specials
+
+
+def test_an_unnumbered_significant_special_is_main_line(database):
+    """TVmaze leaves the number off one-offs that sit between seasons.
+
+    Adults' "Marathon Day" aired four weeks before season two and carries
+    season 2, no number, type significant_special. The number check used to
+    run first and file it as an extra, so it never reached Up Next, the New
+    tab, or the progress count.
+    """
+    assert library.is_special(
+        {"season": 2, "number": None, "type": "significant_special"}
+    ) is False
+    # Everything else unnumbered is still an extra, and season zero always is.
+    assert library.is_special({"season": 2, "number": None, "type": "regular"}) is True
+    assert library.is_special(
+        {"season": 0, "number": 1, "type": "significant_special"}
+    ) is True
+    assert library.is_special(
+        {"season": 2, "number": 3, "type": "insignificant_special"}
+    ) is True
+
+
+def test_a_between_seasons_special_opens_its_season_and_counts(database):
+    seed(
+        database,
+        episodes=[
+            make_episode(201, 1, 1, stamp(-90)),
+            make_episode(
+                202, 2, None, stamp(-30),
+                name="Marathon Day", type="significant_special",
+            ),
+            make_episode(203, 2, 1, stamp(-10)),
+            make_episode(204, 2, 2, stamp(-3)),
+        ],
+    )
+
+    detail = library.show_detail(1)
+    season_two = next(s for s in detail["seasons"] if s["season"] == 2)
+    # It aired before the season it is filed under, so it opens it.
+    assert [e["code"] for e in season_two["episodes"]] == ["S02 Special", "S02E01", "S02E02"]
+    assert season_two["total"] == 3
+    assert library.progress(1)["total"] == 4
+
+    # And it is the first gap in the run, not something skipped over.
+    library.mark_watched(201)
+    assert library.next_episode(1)["id"] == 202
+
+
+async def test_sync_asks_the_endpoint_that_actually_returns_specials(monkeypatch):
+    """`specials=1` works on /episodes and is ignored by embed[]=episodes.
+
+    Asking the embed for specials read as correct and quietly returned regular
+    episodes only, so no unnumbered episode ever reached the database. The
+    other tests stub the whole fetch, which cannot see which URL was asked
+    for, so this one watches the requests themselves.
+    """
+    from app import tvmaze
+
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_get(path, params=None, attempts=4):
+        calls.append((path, params or {}))
+        if path.endswith("/episodes"):
+            return [
+                make_episode(
+                    202, 2, None, stamp(-30),
+                    name="Marathon Day", type="significant_special",
+                )
+            ]
+        return make_show(show_id=1)
+
+    monkeypatch.setattr(tvmaze, "_get", fake_get)
+    payload = await tvmaze.get_show_with_episodes(1)
+
+    episodes = next(params for path, params in calls if path.endswith("/episodes"))
+    assert episodes.get("specials") == 1
+
+    embed = next(params for path, params in calls if not path.endswith("/episodes"))
+    assert "episodes" not in (embed.get("embed[]") or []), (
+        "episodes must not come from the embed, which drops specials"
+    )
+
+    assert [e["name"] for e in payload["_embedded"]["episodes"]] == ["Marathon Day"]

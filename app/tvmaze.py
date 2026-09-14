@@ -104,10 +104,20 @@ async def get_show(show_id: int) -> dict:
 
 
 async def get_show_with_episodes(show_id: int) -> dict:
-    """One call for the show, its full episode list and its cast."""
-    return await _get(
-        f"/shows/{show_id}", {"embed[]": ["episodes", "cast"], "specials": 1}
+    """The show, its cast, and its full episode list including specials.
+
+    Two requests rather than one. `specials=1` is honoured by the episodes
+    endpoint but silently ignored by `embed[]=episodes`, which returns regular
+    episodes only — so asking the embed for specials looked right and quietly
+    dropped every between-seasons one-off. The two run concurrently, and the
+    shared limiter keeps the pair inside TVmaze's budget.
+    """
+    payload, episodes = await asyncio.gather(
+        _get(f"/shows/{show_id}", {"embed[]": ["cast"]}),
+        get_episodes(show_id),
     )
+    payload.setdefault("_embedded", {})["episodes"] = episodes
+    return payload
 
 
 async def get_cast(show_id: int) -> list[dict]:

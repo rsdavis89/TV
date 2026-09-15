@@ -1,10 +1,13 @@
 /* TV Tracker - a small hand-rolled SPA, no build step. */
 
-// Bump this whenever app.js changes. The server reads the same constant out of
-// the file it would serve, so a mismatch means the browser is running a cached
-// copy of an older build — the one failure that makes a deploy look broken when
-// it is not.
-const APP_VERSION = '2026.08.02-19';
+// Bump this whenever app.js changes, and never reuse a number: a version that
+// has been served once belongs to that exact file forever. Reverting and
+// re-landing under the same number leaves two different builds both claiming
+// it, and then the check below cannot see the difference it exists to catch.
+// The server reads the same constant out of the file it would serve, so a
+// mismatch means the browser is running a cached copy of an older build — the
+// one failure that makes a deploy look broken when it is not.
+const APP_VERSION = '2026.08.02-20';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');

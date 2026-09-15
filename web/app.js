@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-18';
+const APP_VERSION = '2026.08.02-19';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -795,10 +795,14 @@ function onLookbackChange(event) {
   render(0);
 }
 
+// Keyed on the local day, not the stamp's UTC date. The time under each
+// heading is rendered locally, so slicing the UTC date put a 9pm Sunday airing
+// under Monday with "9:00 PM" sitting beside it. Anything airing later than
+// 8pm Eastern crosses midnight UTC and was landing a day late.
 function groupByDay(episodes, past) {
   const groups = new Map();
   episodes.forEach((episode) => {
-    const key = (episode.airstamp || '').slice(0, 10);
+    const key = episode.airstamp ? localDay(episode.airstamp) : '';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(episode);
   });

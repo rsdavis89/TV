@@ -71,3 +71,39 @@ def test_a_v4_database_gains_the_cast_column_without_losing_shows(tmp_path, monk
 
     db._local.conn.close()
     del db._local.conn
+
+
+def test_the_airtime_step_survives_a_half_applied_attempt(tmp_path, monkeypatch):
+    """ALTER TABLE has no IF NOT EXISTS, so a partial migration must not wedge.
+
+    A script that added one column and then failed would leave the version
+    unadvanced, re-run from the top next start and abort on "duplicate column
+    name" — and since that happens inside lifespan, the app would never bind a
+    port again. Not one bad start: every start after it.
+    """
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "half.db")
+    if hasattr(db._local, "conn"):
+        db._local.conn.close()
+        del db._local.conn
+
+    monkeypatch.setattr(db, "SCHEMA", db.SCHEMA[:6])
+    db.migrate()
+    conn = db.connect()
+    # As if a previous attempt added one column and then stopped.
+    conn.execute("ALTER TABLE episode ADD COLUMN airtime TEXT")
+    conn.commit()
+    assert conn.execute("SELECT version FROM schema_version").fetchone()["version"] == 6
+
+    monkeypatch.undo()
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "half.db")
+    db.migrate()
+
+    conn = db.connect()
+    assert conn.execute("SELECT version FROM schema_version").fetchone()["version"] == 7
+    for table in ("episode", "premiere"):
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        assert "airtime" in columns, table
+
+    # And running it again is a no-op rather than an error.
+    db.migrate()
+    assert db.connect().execute("SELECT version FROM schema_version").fetchone()["version"] == 7

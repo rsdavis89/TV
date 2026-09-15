@@ -43,6 +43,22 @@ def tx() -> Iterator[sqlite3.Connection]:
     conn.commit()
 
 
+def _add_airtime_columns(conn: sqlite3.Connection) -> None:
+    """Add the airtime column to the tables that need it, where it is missing.
+
+    Written as a step rather than a script because ALTER TABLE has no
+    IF NOT EXISTS. A script that added one column and then failed would leave
+    the version unadvanced, re-run from the top on the next start, and abort on
+    "duplicate column name" - wedging every future start rather than the one
+    that went wrong. Adding only what is absent is safe to re-run, and safe on
+    a database where a previous attempt got halfway.
+    """
+    for table in ("episode", "premiere"):
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if "airtime" not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN airtime TEXT")
+
+
 SCHEMA = [
     # v1
     """
@@ -161,6 +177,10 @@ SCHEMA = [
     """
     ALTER TABLE premiere ADD COLUMN dismissed_at TEXT;
     """,
+    # v7: the network-local air time as TVmaze gives it, so a show with no time
+    # on record can be told from one that airs at noon UTC. TVmaze stamps an
+    # unknown time as 12:00Z, which reads as a real 8am airing in New York.
+    _add_airtime_columns,
 ]
 
 
@@ -169,9 +189,12 @@ def migrate() -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
     row = conn.execute("SELECT version FROM schema_version").fetchone()
     current = row["version"] if row else 0
-    for index, script in enumerate(SCHEMA, start=1):
+    for index, step in enumerate(SCHEMA, start=1):
         if index > current:
-            conn.executescript(script)
+            if callable(step):
+                step(conn)
+            else:
+                conn.executescript(step)
             current = index
     conn.execute("DELETE FROM schema_version")
     conn.execute("INSERT INTO schema_version (version) VALUES (?)", (current,))

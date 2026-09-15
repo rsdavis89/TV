@@ -185,6 +185,7 @@ def save_episodes(show_id: int, episodes: Iterable[dict]) -> int:
                 "type": episode.get("type"),
                 "is_special": 1 if is_special(episode) else 0,
                 "airdate": episode.get("airdate"),
+                "airtime": episode.get("airtime") or "",
                 "airstamp": normalize_airstamp(episode),
                 "runtime": episode.get("runtime"),
                 "summary": strip_html(episode.get("summary")),
@@ -449,6 +450,10 @@ def episode_public(row: sqlite3.Row) -> dict:
     data["code"] = episode_code(data.get("season"), data.get("number"))
     data["watched"] = bool(data.get("watched_at"))
     data["aired"] = bool(data.get("airstamp") and data["airstamp"] <= now_iso())
+    # An empty airtime is TVmaze saying it has no time for this one, so the
+    # noon-UTC stamp it supplies is a placeholder and must not be printed as a
+    # real one. NULL predates the column, and keeps its old behaviour.
+    data["time_known"] = data.get("airtime") != ""
     return data
 
 

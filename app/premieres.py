@@ -108,6 +108,7 @@ def _normalise(item: dict) -> dict | None:
         "show_name": show.get("name"),
         "season": season,
         "airstamp": airstamp,
+        "airtime": item.get("airtime") or "",
         "channel": channel,
         "kind": "series" if season == 1 else "season",
         "genres": json.dumps(show.get("genres") or []),
@@ -273,6 +274,7 @@ def listing(
         item["following"] = bool(item["following"])
         item["dismissed"] = bool(item.get("dismissed_at"))
         item["aired"] = item["airstamp"] <= now.replace(microsecond=0).isoformat()
+        item["time_known"] = item.get("airtime") != ""
         channels[item["channel"]] = channels.get(item["channel"], 0) + 1
         # A returning season of something you already follow is not a discovery;
         # your own episode tracking already has it.

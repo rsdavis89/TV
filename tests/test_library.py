@@ -638,3 +638,39 @@ async def test_sync_asks_the_endpoint_that_actually_returns_specials(monkeypatch
     )
 
     assert [e["name"] for e in payload["_embedded"]["episodes"]] == ["Marathon Day"]
+
+
+def test_a_placeholder_air_time_is_not_reported_as_a_real_one(database):
+    """TVmaze stamps an unknown time as noon UTC, which is 8am in New York.
+
+    Slow Horses and Lioness both carry airtime "" and a 12:00Z stamp, and the
+    calendar was printing "8:00 AM" beside them as though it were the release
+    time. The stamp still orders the day correctly; only the clock face is
+    withheld.
+    """
+    seed(
+        database,
+        episodes=[
+            make_episode(301, 1, 1, "2026-09-16T12:00:00+00:00", airtime=""),
+            make_episode(302, 1, 2, "2026-09-23T01:00:00+00:00", airtime="21:00"),
+        ],
+    )
+    episodes = {e["id"]: e for s in library.show_detail(1)["seasons"] for e in s["episodes"]}
+
+    assert episodes[301]["time_known"] is False
+    assert episodes[302]["time_known"] is True
+
+
+def test_an_episode_stored_before_air_times_were_kept_keeps_its_time(database):
+    """NULL is "never fetched", which the cast column already distinguishes.
+
+    An existing library must not lose every time it displays the moment this
+    ships; those rows keep their old behaviour until the next refresh.
+    """
+    seed(database, episodes=[make_episode(401, 1, 1, "2026-09-16T12:00:00+00:00")])
+    with library.tx() as conn:
+        conn.execute("UPDATE episode SET airtime = NULL")
+
+    episode = library.show_detail(1)["seasons"][0]["episodes"][0]
+    assert episode["airtime"] is None
+    assert episode["time_known"] is True

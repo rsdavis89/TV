@@ -161,15 +161,6 @@ SCHEMA = [
     """
     ALTER TABLE premiere ADD COLUMN dismissed_at TEXT;
     """,
-    # v7: the network-local air time as TVmaze gives it, so a show with no time
-    # on record can be told from one that airs at noon UTC. TVmaze stamps an
-    # unknown time as 12:00Z, which reads as a real 8am airing in New York.
-    # Empty means TVmaze has no time; NULL means the row predates this column
-    # and has not been re-synced, so it keeps showing what it showed before.
-    """
-    ALTER TABLE episode ADD COLUMN airtime TEXT;
-    ALTER TABLE premiere ADD COLUMN airtime TEXT;
-    """,
 ]
 
 

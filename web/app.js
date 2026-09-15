@@ -4,7 +4,7 @@
 // the file it would serve, so a mismatch means the browser is running a cached
 // copy of an older build — the one failure that makes a deploy look broken when
 // it is not.
-const APP_VERSION = '2026.08.02-19';
+const APP_VERSION = '2026.08.02-18';
 
 const main = document.getElementById('main');
 const titleEl = document.getElementById('view-title');
@@ -106,19 +106,15 @@ function poster(url, className, alt) {
 
 const DAY = 86400000;
 
-// timeKnown defaults to true because this also labels watched_at, sweep times
-// and backup stamps, which are real clock times. Only an air time TVmaze has
-// left blank is passed false, and then the date is given on its own.
-function airLabel(stamp, timeKnown = true) {
+function airLabel(stamp) {
   if (!stamp) return 'Date to be announced';
   const when = new Date(stamp);
   const now = new Date();
   const days = Math.round((startOfDay(when) - startOfDay(now)) / DAY);
-  const at = timeKnown ? `, ${timeOf(when)}` : '';
-  if (days === 0) return `Today${at}`;
-  if (days === 1) return `Tomorrow${at}`;
+  if (days === 0) return `Today, ${timeOf(when)}`;
+  if (days === 1) return `Tomorrow, ${timeOf(when)}`;
   if (days === -1) return 'Yesterday';
-  if (days > 1 && days <= 6) return `${when.toLocaleDateString(undefined, { weekday: 'long' })}${at}`;
+  if (days > 1 && days <= 6) return `${when.toLocaleDateString(undefined, { weekday: 'long' })}, ${timeOf(when)}`;
   if (days < 0 && days >= -6) return `${-days} days ago`;
   if (days < 0) return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   return when.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -286,8 +282,8 @@ function showCard(card, options = {}) {
 
   if (next) {
     const when = status === 'ready'
-      ? `Aired ${airLabel(next.airstamp, next.time_known)}`
-      : `${airLabel(next.airstamp, next.time_known)} ${countdown(next.airstamp)}`.trim();
+      ? `Aired ${airLabel(next.airstamp)}`
+      : `${airLabel(next.airstamp)} ${countdown(next.airstamp)}`.trim();
     lines.push(`<div class="card-line"><strong>${esc(next.code)}</strong> ${esc(next.name || '')}</div>`);
     lines.push(`<div class="card-line">${esc(when)}</div>`);
   } else if (status === 'complete') {
@@ -704,7 +700,7 @@ function premiereRow(item) {
       <div class="row-body">
         <div class="row-title">${esc(item.show_name)} ${badge}</div>
         <div class="row-sub">${esc(meta)}</div>
-        <div class="row-sub">${item.time_known ? esc(timeOf(new Date(item.airstamp))) : ''}</div>
+        <div class="row-sub">${esc(timeOf(new Date(item.airstamp)))}</div>
       </div>
       <button class="secondary" data-add="${item.show_id}">Add</button>
       <button class="dismiss" data-dismiss="${item.episode_id}" title="Not interested"
@@ -719,7 +715,7 @@ function newRow(episode) {
       <div class="row-body" data-open="${episode.show_id}">
         <div class="row-title">${esc(episode.show_name)}</div>
         <div class="row-sub">${esc(episode.code)} · ${esc(episode.name || '')}</div>
-        <div class="row-sub">${esc(airLabel(episode.airstamp, episode.time_known))}</div>
+        <div class="row-sub">${esc(airLabel(episode.airstamp))}</div>
       </div>
       <button class="check" data-watch="${episode.id}" title="Mark watched">&#10003;</button>
     </div>`;
@@ -799,14 +795,10 @@ function onLookbackChange(event) {
   render(0);
 }
 
-// Keyed on the local day, not the stamp's UTC date. The time under each
-// heading is rendered locally, so slicing the UTC date put a 9pm Sunday airing
-// under Monday with "9:00 PM" sitting beside it. Anything airing later than
-// 8pm Eastern crosses midnight UTC and was landing a day late.
 function groupByDay(episodes, past) {
   const groups = new Map();
   episodes.forEach((episode) => {
-    const key = episode.airstamp ? localDay(episode.airstamp) : '';
+    const key = (episode.airstamp || '').slice(0, 10);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(episode);
   });
@@ -820,7 +812,7 @@ function groupByDay(episodes, past) {
           <div class="row-body">
             <div class="row-title">${esc(episode.show_name)}</div>
             <div class="row-sub">${esc(episode.code)} · ${esc(episode.name || 'TBA')}</div>
-            <div class="row-sub">${[episode.time_known ? esc(timeOf(new Date(episode.airstamp))) : '', episode.network ? esc(episode.network) : ''].filter(Boolean).join(' · ')}</div>
+            <div class="row-sub">${esc(timeOf(new Date(episode.airstamp)))}${episode.network ? ' · ' + esc(episode.network) : ''}</div>
           </div>
           ${past
             ? (episode.watched
@@ -1071,7 +1063,7 @@ async function viewShowDetail() {
         <div class="card-line">${progress.watched}/${progress.total} watched · ${progress.percent}%</div>
         <div class="progress" style="margin-bottom:8px"><i style="width:${progress.percent}%"></i></div>
         ${last ? `<div class="card-line muted">Last watched ${esc(last.code)}, ${esc(airLabel(last.watched_at))}</div>` : ''}
-        ${next ? `<div class="card-line">Next up <strong>${esc(next.code)}</strong> · ${esc(airLabel(next.airstamp, next.time_known))}</div>` : ''}
+        ${next ? `<div class="card-line">Next up <strong>${esc(next.code)}</strong> · ${esc(airLabel(next.airstamp))}</div>` : ''}
       </div>
     </div>
 
@@ -1148,9 +1140,7 @@ function renderSeason(showId, season) {
 }
 
 function renderEpisode(showId, episode) {
-  const sub = [episode.aired
-    ? airLabel(episode.airstamp, episode.time_known)
-    : `Airs ${airLabel(episode.airstamp, episode.time_known)}`]
+  const sub = [episode.aired ? airLabel(episode.airstamp) : `Airs ${airLabel(episode.airstamp)}`]
     .filter(Boolean).join(' · ');
   return `
     <div class="row episode-row ${episode.aired ? '' : 'unaired'}">

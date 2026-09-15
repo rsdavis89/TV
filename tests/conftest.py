@@ -46,9 +46,6 @@ def make_episode(episode_id, season, number, airstamp, show_id=1, **extra):
         "name": f"Episode {number}",
         "type": "regular",
         "airdate": airstamp[:10] if airstamp else None,
-        # A show with a time on record, which is the common case. Pass
-        # airtime="" for one TVmaze has no time for, as with most streamers.
-        "airtime": airstamp[11:16] if airstamp else "",
         "airstamp": airstamp,
         "runtime": 45,
         "summary": None,

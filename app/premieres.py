@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import tvmaze
 from .db import connect, get_meta, set_meta, tx, utcnow
-from .library import strip_html
+from .library import strip_html, time_known
 
 log = logging.getLogger("tv.premieres")
 
@@ -71,7 +71,7 @@ MIN_HOURS_BETWEEN_SWEEPS = 12
 # Bumped whenever a sweep starts collecting something different. Without it a
 # deploy that widens the horizon sits behind the twice-a-day gate for half a
 # day, serving data gathered under the old rules and looking like a bug.
-SWEEP_GENERATION = "2"
+SWEEP_GENERATION = "3"
 
 
 def _show_of(item: dict) -> dict:
@@ -274,7 +274,7 @@ def listing(
         item["following"] = bool(item["following"])
         item["dismissed"] = bool(item.get("dismissed_at"))
         item["aired"] = item["airstamp"] <= now.replace(microsecond=0).isoformat()
-        item["time_known"] = item.get("airtime") != ""
+        item["time_known"] = time_known(item)
         channels[item["channel"]] = channels.get(item["channel"], 0) + 1
         # A returning season of something you already follow is not a discovery;
         # your own episode tracking already has it.

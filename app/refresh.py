@@ -13,6 +13,14 @@ log = logging.getLogger("tv.refresh")
 
 _lock = asyncio.Lock()
 
+# Bump this when a release changes what a sync collects, and every followed
+# show is re-synced once on the next pass regardless of staleness. The pass
+# below otherwise skips any show synced within the week, so a fix that changes
+# what get_show_with_episodes returns - specials, most recently - would reach a
+# 405-show library one show at a time over seven days, and only as TVmaze
+# happened to flag each one. Premieres do the same with SWEEP_GENERATION.
+SYNC_GENERATION = "2"
+
 
 def _stale_cutoff() -> str:
     from datetime import datetime, timedelta, timezone
@@ -33,6 +41,11 @@ async def refresh_all(force: bool = False) -> dict:
             set_meta("last_refresh_at", report["at"])
             set_meta("last_refresh", json.dumps(report))
             return report
+
+        # A generation change means the code now collects something it did
+        # not before, so nothing already on record can be trusted as complete.
+        regenerate = get_meta("episode_sync_generation") != SYNC_GENERATION
+        force = force or regenerate
 
         updates: dict[str, int] = {}
         if not force:
@@ -78,9 +91,14 @@ async def refresh_all(force: bool = False) -> dict:
             "synced": synced,
             "failed": failed,
             "new_episodes": max(sum(after.values()) - sum(before.values()), 0),
+            "regenerated": regenerate,
         }
         set_meta("last_refresh_at", report["at"])
         set_meta("last_refresh", json.dumps(report))
+        if regenerate:
+            # Recorded only once the pass is through, so one that raised
+            # partway is retried whole rather than left half done.
+            set_meta("episode_sync_generation", SYNC_GENERATION)
         return report
 
 

@@ -109,14 +109,18 @@ async def get_show_with_episodes(show_id: int) -> dict:
     Two requests rather than one. `specials=1` is honoured by the episodes
     endpoint but silently ignored by `embed[]=episodes`, which returns regular
     episodes only — so asking the embed for specials looked right and quietly
-    dropped every between-seasons one-off. The two run concurrently, and the
-    shared limiter keeps the pair inside TVmaze's budget.
+    dropped every between-seasons one-off.
+
+    The show goes first, on its own. A show TVmaze no longer has raises
+    NotFound before a second request is spent on its episodes, and under load
+    the limiter serialises the pair anyway, so running them together bought
+    nothing but an orphaned task whenever one of them failed.
     """
-    payload, episodes = await asyncio.gather(
-        _get(f"/shows/{show_id}", {"embed[]": ["cast"]}),
-        get_episodes(show_id),
-    )
-    payload.setdefault("_embedded", {})["episodes"] = episodes
+    payload = await _get(f"/shows/{show_id}", {"embed[]": ["cast"]})
+    if not payload:
+        # An empty body comes back as None; every other caller guards it.
+        raise TVmazeError(f"TVmaze returned an empty record for show {show_id}")
+    payload.setdefault("_embedded", {})["episodes"] = await get_episodes(show_id)
     return payload
 
 

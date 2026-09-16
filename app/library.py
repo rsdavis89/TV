@@ -47,6 +47,17 @@ def normalize_airstamp(episode: dict) -> str | None:
     return None
 
 
+def time_known(row: dict) -> bool:
+    """Whether an air time is real, or TVmaze's stand-in for "unknown".
+
+    An empty airtime is TVmaze saying it has no time for this one, so the
+    noon-UTC stamp it supplies is a placeholder and must not be printed as a
+    real one. NULL predates the column and keeps its old behaviour, so only
+    the empty string means unknown. One rule, used for episodes and premieres.
+    """
+    return row.get("airtime") != ""
+
+
 def is_special(episode: dict) -> bool:
     kind = episode.get("type") or "regular"
     if (episode.get("season") or 0) == 0:
@@ -450,10 +461,7 @@ def episode_public(row: sqlite3.Row) -> dict:
     data["code"] = episode_code(data.get("season"), data.get("number"))
     data["watched"] = bool(data.get("watched_at"))
     data["aired"] = bool(data.get("airstamp") and data["airstamp"] <= now_iso())
-    # An empty airtime is TVmaze saying it has no time for this one, so the
-    # noon-UTC stamp it supplies is a placeholder and must not be printed as a
-    # real one. NULL predates the column, and keeps its old behaviour.
-    data["time_known"] = data.get("airtime") != ""
+    data["time_known"] = time_known(data)
     return data
 
 

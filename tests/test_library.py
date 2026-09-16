@@ -674,3 +674,40 @@ def test_an_episode_stored_before_air_times_were_kept_keeps_its_time(database):
     episode = library.show_detail(1)["seasons"][0]["episodes"][0]
     assert episode["airtime"] is None
     assert episode["time_known"] is True
+
+
+def test_time_known_tells_a_placeholder_from_a_real_time_and_a_legacy_row():
+    assert library.time_known({"airtime": "21:00"}) is True
+    assert library.time_known({"airtime": ""}) is False
+    assert library.time_known({"airtime": None}) is True  # predates the column
+    assert library.time_known({}) is True
+
+
+async def test_an_empty_show_record_is_a_tvmaze_error_not_a_crash(monkeypatch):
+    """_get hands back None for an empty body; every caller guards it."""
+    import pytest
+    from app import tvmaze
+
+    async def fake_get(path, params=None, attempts=4):
+        return None
+
+    monkeypatch.setattr(tvmaze, "_get", fake_get)
+    with pytest.raises(tvmaze.TVmazeError):
+        await tvmaze.get_show_with_episodes(1)
+
+
+async def test_a_missing_show_does_not_spend_a_second_request(monkeypatch):
+    """The show goes first, so NotFound short-circuits the episodes call."""
+    import pytest
+    from app import tvmaze
+
+    calls = []
+
+    async def fake_get(path, params=None, attempts=4):
+        calls.append(path)
+        raise tvmaze.NotFound(path)
+
+    monkeypatch.setattr(tvmaze, "_get", fake_get)
+    with pytest.raises(tvmaze.NotFound):
+        await tvmaze.get_show_with_episodes(1)
+    assert calls == ["/shows/1"]

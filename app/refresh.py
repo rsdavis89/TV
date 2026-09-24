@@ -7,7 +7,7 @@ import json
 import logging
 
 from . import config, library, tvmaze
-from .db import connect, get_meta, set_meta, utcnow
+from .db import connect, get_meta, set_meta, tx, utcnow
 
 log = logging.getLogger("tv.refresh")
 
@@ -79,6 +79,22 @@ async def refresh_all(force: bool = False) -> dict:
             except tvmaze.TVmazeError as exc:
                 log.warning("refresh failed for show %s: %s", show_id, exc)
                 failed.append(show_id)
+            except Exception:
+                # Anything else - a garbled payload, a record missing a field -
+                # is still one show's problem. Letting it escape abandoned every
+                # show after it, and during a regeneration pass left the
+                # generation unrecorded, so each pass repeated the whole library
+                # and died at the same show.
+                log.exception("refresh failed for show %s", show_id)
+                failed.append(show_id)
+        if failed:
+            # A show that did not sync must not count as fresh, or staleness
+            # skips it for a week - and in a regeneration pass it would miss
+            # exactly what the pass exists to deliver. The next pass retries
+            # these, and only these.
+            marks = ",".join("?" for _ in failed)
+            with tx() as conn:
+                conn.execute(f"UPDATE show SET synced_at = NULL WHERE id IN ({marks})", failed)
         after = _episode_counts(pending)
 
         forgotten = library.forget_unused_shows()
@@ -96,8 +112,9 @@ async def refresh_all(force: bool = False) -> dict:
         set_meta("last_refresh_at", report["at"])
         set_meta("last_refresh", json.dumps(report))
         if regenerate:
-            # Recorded only once the pass is through, so one that raised
-            # partway is retried whole rather than left half done.
+            # Recorded only once the pass is through, so one cut short - the
+            # process stopping mid-pass - is retried whole. A show that failed
+            # does not hold it up: its synced_at is cleared above instead.
             set_meta("episode_sync_generation", SYNC_GENERATION)
         return report
 

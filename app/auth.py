@@ -96,7 +96,9 @@ def valid_token(token: str | None) -> bool:
     if not token or "." not in token:
         return False
     expiry, signature = token.rsplit(".", 1)
-    if not hmac.compare_digest(signature, _sign(expiry)):
+    # Bytes, not str: compare_digest raises on non-ASCII text, and the cookie is
+    # whatever the client sent, so a garbled one would 500 every request.
+    if not hmac.compare_digest(signature.encode(), _sign(expiry).encode()):
         return False
     try:
         return int(expiry) > time.time()
@@ -105,7 +107,8 @@ def valid_token(token: str | None) -> bool:
 
 
 def check_password(candidate: str) -> bool:
-    return hmac.compare_digest(candidate or "", config.PASSWORD)
+    # As bytes, or a password with an accent in it could never be entered.
+    return hmac.compare_digest((candidate or "").encode(), config.PASSWORD.encode())
 
 
 def authenticated(request: Request) -> bool:

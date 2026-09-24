@@ -216,13 +216,18 @@ def save_episodes(show_id: int, episodes: Iterable[dict]) -> int:
                 f"ON CONFLICT(id) DO UPDATE SET {updates}",
                 rows,
             )
-        # Drop episodes TVmaze no longer lists, but never one you have watched.
-        keep = ",".join(str(int(i)) for i in seen_ids) or "0"
-        conn.execute(
-            f"DELETE FROM episode WHERE show_id = ? AND id NOT IN ({keep}) "
-            "AND id NOT IN (SELECT episode_id FROM watch)",
-            (show_id,),
-        )
+        # Drop episodes TVmaze no longer lists, but never one you have watched -
+        # and never against an empty list. A show does not lose its whole run
+        # overnight, but an empty response does happen, and pruning against it
+        # deletes every unwatched episode and drops the show from Up Next until
+        # the next sync, which staleness puts up to a week away.
+        if seen_ids:
+            keep = ",".join(str(int(i)) for i in seen_ids)
+            conn.execute(
+                f"DELETE FROM episode WHERE show_id = ? AND id NOT IN ({keep}) "
+                "AND id NOT IN (SELECT episode_id FROM watch)",
+                (show_id,),
+            )
     return len(rows)
 
 
@@ -529,13 +534,17 @@ def gaps_before_furthest(show_id: int) -> int:
     at the first of those holes, which is right, but only makes sense if you can
     see how many there are.
     """
+    # An unnumbered episode counts as number 0, as in _order_key, so a
+    # between-seasons special skipped over is a gap like any other. Compared
+    # as NULL it fell out of the count, and Up Next offered an episode this
+    # said you had no gaps before.
     conn = connect()
     furthest = conn.execute(
         """
-        SELECT e.season AS season, e.number AS number FROM watch w
+        SELECT e.season AS season, COALESCE(e.number, 0) AS number FROM watch w
         JOIN episode e ON e.id = w.episode_id
         WHERE w.show_id = ? AND e.is_special = 0
-        ORDER BY e.season DESC, e.number DESC
+        ORDER BY e.season DESC, COALESCE(e.number, 0) DESC
         LIMIT 1
         """,
         (show_id,),
@@ -547,7 +556,7 @@ def gaps_before_furthest(show_id: int) -> int:
         SELECT COUNT(*) AS n FROM episode e
         LEFT JOIN watch w ON w.episode_id = e.id
         WHERE e.show_id = ? AND e.is_special = 0 AND w.episode_id IS NULL
-          AND (e.season < ? OR (e.season = ? AND e.number < ?))
+          AND (e.season < ? OR (e.season = ? AND COALESCE(e.number, 0) < ?))
         """,
         (show_id, furthest["season"], furthest["season"], furthest["number"]),
     ).fetchone()

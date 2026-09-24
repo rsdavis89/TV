@@ -54,7 +54,9 @@ Collapsing it back to one call makes every special disappear without an error.
 (7 days) unless TVmaze's updates feed flags it. A fix that changes *what a sync
 collects* therefore does not reach data already on record. Bump `SYNC_GENERATION`
 (`app/refresh.py`) to force one full pass over every followed show; it is recorded
-only after the pass completes, so an interrupted pass retries whole. `premieres.py`
+only after the pass completes, so an interrupted pass retries whole. A show that
+fails to sync never stops the pass: its `synced_at` is cleared so the next pass
+retries it, and only it. `premieres.py`
 does the same with `SWEEP_GENERATION`. To check a sync change against one show
 immediately, use per-show Re-sync (`POST /api/shows/{id}/refresh`) - it calls
 `sync_show` directly and ignores staleness.

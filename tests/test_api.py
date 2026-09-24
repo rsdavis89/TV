@@ -435,6 +435,54 @@ def test_a_forged_session_cookie_is_refused(locked):
         assert auth.valid_token(forged) is False
 
 
+def test_a_password_with_an_accent_can_be_used(locked, monkeypatch):
+    """compare_digest raises on non-ASCII str, which made this unenterable."""
+    from app import config as app_config
+
+    monkeypatch.setattr(app_config, "PASSWORD", "café crème")
+    assert locked.post("/api/auth/login", json={"password": "cafe creme"}).status_code == 401
+    assert locked.post("/api/auth/login", json={"password": "café crème"}).status_code == 200
+    assert locked.get("/api/home").status_code == 200
+
+
+def test_a_non_ascii_guess_is_a_wrong_password_not_a_crash(locked):
+    assert locked.post("/api/auth/login", json={"password": "naïve"}).status_code == 401
+
+
+def test_a_garbled_cookie_is_refused_rather_than_crashing(database):
+    """The middleware checks every /api request, so a raise here was a 500 each time."""
+    import time
+
+    from app import auth
+
+    future = str(int(time.time()) + 86400)
+    assert auth.valid_token(f"{future}.sïgnature") is False
+    assert auth.valid_token(f"fütüre.{auth._sign(future)}") is False
+
+
+def test_an_import_left_running_by_a_restart_is_closed_out(database):
+    from app import jobs
+
+    job_id = jobs.create_job("export.zip", dry_run=False)
+    assert jobs.get_job(job_id)["status"] == "running"
+
+    assert jobs.fail_interrupted() == 1
+    job = jobs.get_job(job_id)
+    assert job["status"] == "failed"
+    assert "restart" in job["error"]
+    assert jobs.fail_interrupted() == 0
+
+
+def test_resyncing_a_show_tvmaze_has_dropped_is_a_404(client, monkeypatch):
+    from app import tvmaze
+
+    async def gone(show_id):
+        raise tvmaze.NotFound(f"/shows/{show_id}")
+
+    monkeypatch.setattr(library, "sync_show", gone)
+    assert client.post("/api/shows/9/refresh").status_code == 404
+
+
 def test_an_expired_but_correctly_signed_token_is_refused(database):
     import time
 

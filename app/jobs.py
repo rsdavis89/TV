@@ -47,6 +47,22 @@ def fail_job(job_id: int, message: str) -> None:
         )
 
 
+def fail_interrupted() -> int:
+    """Close out imports a restart killed mid-run, so the page stops polling them.
+
+    An import runs as a task inside this process, so a deploy ends it without a
+    word and its row would say "running" forever. Called at startup, when no
+    import can be genuinely running yet.
+    """
+    with tx() as conn:
+        cursor = conn.execute(
+            "UPDATE import_job SET status = 'failed', stage = 'Failed', "
+            "error = 'Interrupted by a restart. Run the import again.' "
+            "WHERE status = 'running'"
+        )
+        return max(cursor.rowcount, 0)
+
+
 def get_job(job_id: int) -> dict | None:
     row = connect().execute("SELECT * FROM import_job WHERE id = ?", (job_id,)).fetchone()
     if row is None:

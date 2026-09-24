@@ -88,7 +88,15 @@ async def _get(path: str, params: dict[str, Any] | None = None, attempts: int = 
 
         if not response.content:
             return None
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            # A truncated or garbled body. Retried like any transport fault, and
+            # a TVmazeError if it persists - not a bare JSONDecodeError that no
+            # caller is watching for.
+            last_error = exc
+            await asyncio.sleep(2**attempt)
+            continue
 
     raise TVmazeError(f"TVmaze request failed after {attempts} attempts: {last_error}")
 

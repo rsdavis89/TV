@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, backup, config, db, premieres, refresh, storage, tvmaze
+from . import auth, backup, config, db, jobs, premieres, refresh, storage, tvmaze
 from .api import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -23,6 +23,8 @@ OPEN_PATHS = {"/api/auth/status", "/api/auth/login", "/api/auth/logout"}
 async def lifespan(app: FastAPI):
     db.migrate()
     storage.record_start()
+    if interrupted := jobs.fail_interrupted():
+        log.warning("marked %d import(s) interrupted by the restart as failed", interrupted)
     tasks = [
         asyncio.create_task(refresh.scheduler()),
         asyncio.create_task(backup.scheduler()),

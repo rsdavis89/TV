@@ -252,6 +252,8 @@ def bulk_shows(body: BulkBody) -> dict:
 async def refresh_show(show_id: int) -> dict:
     try:
         await library.sync_show(show_id)
+    except tvmaze.NotFound:
+        raise HTTPException(status_code=404, detail="TVmaze no longer has this show")
     except tvmaze.TVmazeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return library.show_detail(show_id) or {}

@@ -711,3 +711,69 @@ async def test_a_missing_show_does_not_spend_a_second_request(monkeypatch):
     with pytest.raises(tvmaze.NotFound):
         await tvmaze.get_show_with_episodes(1)
     assert calls == ["/shows/1"]
+
+
+def test_an_empty_episode_list_does_not_delete_the_run(database):
+    """An empty response is a blip, not a show losing every episode.
+
+    Pruning against it deleted everything unwatched and dropped the show out of
+    Up Next until the next sync, which staleness puts up to a week away.
+    """
+    seed(database)
+    library.mark_watched(101)
+    before = {e["id"] for s in library.show_detail(1)["seasons"] for e in s["episodes"]}
+
+    library.save_episodes(1, [])
+
+    after = {e["id"] for s in library.show_detail(1)["seasons"] for e in s["episodes"]}
+    assert after == before
+    assert library.next_episode(1)["id"] == 102
+
+
+def test_a_skipped_unnumbered_special_counts_as_a_gap(database):
+    """Up Next and the gap count must agree about a between-seasons special."""
+    seed(
+        database,
+        episodes=[
+            make_episode(
+                200, 2, None, stamp(-40), name="Marathon Day", type="significant_special"
+            ),
+            *[make_episode(200 + n, 2, n, stamp(-20)) for n in range(1, 6)],
+        ],
+    )
+    for n in range(1, 6):
+        library.mark_watched(200 + n)
+
+    assert library.next_episode(1)["id"] == 200
+    assert library.gaps_before_furthest(1) == 1
+
+
+async def test_a_garbled_body_is_retried_then_raised_as_a_tvmaze_error(monkeypatch):
+    """Not a bare JSONDecodeError, which no caller is watching for."""
+    import asyncio
+
+    import pytest
+    from app import tvmaze
+
+    attempts = []
+
+    class Garbled:
+        status_code = 200
+        content = b'{"id": 1, "na'
+
+        def json(self):
+            raise ValueError("Unterminated string")
+
+    class Client:
+        async def get(self, path, params=None):
+            attempts.append(path)
+            return Garbled()
+
+    async def no_wait(seconds):
+        return None
+
+    monkeypatch.setattr(tvmaze, "client", lambda: Client())
+    monkeypatch.setattr(tvmaze.asyncio, "sleep", no_wait)
+    with pytest.raises(tvmaze.TVmazeError):
+        await tvmaze._get("/shows/1")
+    assert len(attempts) == 4
